@@ -395,6 +395,7 @@ func debugProjectRetireOutputSchema() map[string]any {
 		"configuration_revision":        integer("Retired configuration revision.", 0, 1<<53-1),
 		"cancelled_config_publications": integer("Cancelled pending configuration publications.", 0, 4096),
 		"already_retired":               outputBoolean(),
+		"legacy_callback_epoch_count":   integer("Legacy emitted callback epochs accepted by this transition.", 0, 4096),
 	}, "key", "status", "configuration_revision", "cancelled_config_publications", "already_retired")
 }
 

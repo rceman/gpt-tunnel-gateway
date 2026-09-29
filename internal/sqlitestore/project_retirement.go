@@ -31,6 +31,10 @@ type LocalProjectRetirement struct {
 }
 
 func (d *Databases) BeginLocalProjectRetirement(ctx context.Context, retirement model.ProjectRetirement) error {
+	return d.beginLocalProjectRetirement(ctx, retirement, nil, false)
+}
+
+func (d *Databases) beginLocalProjectRetirement(ctx context.Context, retirement model.ProjectRetirement, legacyEpochIDs []string, allowLegacy bool) error {
 	if d == nil || d.Local == nil {
 		return fmt.Errorf("Local store is unavailable")
 	}
@@ -43,22 +47,18 @@ func (d *Databases) BeginLocalProjectRetirement(ctx context.Context, retirement 
 		if existing.Reason != retirement.Reason {
 			return ErrProjectRetirementConflict
 		}
-		blocked, err := d.localProjectRetirementBlocked(ctx, retirement.ProjectID)
+		allowed, err := d.localProjectRetirementReplayAllowed(ctx, retirement)
 		if err != nil {
 			return err
 		}
-		if blocked {
+		if !allowed {
 			return ErrProjectRetirementUnsafe
 		}
 		return nil
 	}
+	statement := localProjectRetirementInsertStatement(retirement, allowLegacy, legacyEpochIDs)
 	_, err := d.Local.Batch(ctx, []upstream.Statement{
-		{SQL: `INSERT INTO local_project_retirements(project_id,reason,retired_at)
-SELECT ?,?,?
-WHERE NOT EXISTS(SELECT 1 FROM local_sessions WHERE status='active' AND session_type<>'admin' AND (project_id=? OR project_id=''))
-AND NOT EXISTS(SELECT 1 FROM local_operations WHERE project_id=? AND status NOT IN ('completed','failed'))
-AND NOT EXISTS(SELECT 1 FROM local_task_execution_states WHERE project_id=? AND status NOT IN ('done','failed','abandoned'))
-AND NOT EXISTS(SELECT 1 FROM local_callback_epochs WHERE project_id=? AND (emitted_at IS NULL OR hook_outcome IS NULL OR hook_outcome NOT IN ('completed','failed','unbound')))`, Args: []any{retirement.ProjectID, retirement.Reason, retirement.RetiredAt.UTC().Format(time.RFC3339Nano), retirement.ProjectID, retirement.ProjectID, retirement.ProjectID, retirement.ProjectID}, RequireRowsAffected: 1},
+		statement,
 		{SQL: `DELETE FROM local_session_bootstrap_grants WHERE project_id=?`, Args: []any{retirement.ProjectID}},
 	})
 	if err == nil {
@@ -68,16 +68,47 @@ AND NOT EXISTS(SELECT 1 FROM local_callback_epochs WHERE project_id=? AND (emitt
 		if existing.Reason != retirement.Reason {
 			return ErrProjectRetirementConflict
 		}
-		return nil
+		allowed, replayErr := d.localProjectRetirementReplayAllowed(ctx, retirement)
+		if replayErr != nil {
+			return replayErr
+		}
+		if allowed {
+			return nil
+		}
 	}
 	blocked, checkErr := d.localProjectRetirementBlocked(ctx, retirement.ProjectID)
 	if checkErr != nil {
 		return checkErr
 	}
+	if blocked && allowLegacy {
+		blocked, checkErr = d.localProjectRetirementBlockedAllowingLegacyEpochs(ctx, retirement.ProjectID)
+		if checkErr != nil {
+			return checkErr
+		}
+	}
 	if blocked {
 		return ErrProjectRetirementUnsafe
 	}
 	return err
+}
+
+func (d *Databases) localProjectRetirementReplayAllowed(ctx context.Context, retirement model.ProjectRetirement) (bool, error) {
+	blocked, err := d.localProjectRetirementBlocked(ctx, retirement.ProjectID)
+	if err != nil || !blocked {
+		return !blocked, err
+	}
+	if retirement.LegacyCallbackEpochCount == 0 || retirement.LegacyCallbackEpochSHA256 == "" {
+		return false, nil
+	}
+	evidence, _, err := d.readProjectRetirementLegacyEpochEvidence(ctx, retirement.ProjectID)
+	if err != nil {
+		return false, err
+	}
+	if evidence.Count != retirement.LegacyCallbackEpochCount || evidence.SHA256 != retirement.LegacyCallbackEpochSHA256 {
+		return false, nil
+	}
+	blocked, err = d.localProjectRetirementBlockedAllowingLegacyEpochs(ctx, retirement.ProjectID)
+	return !blocked, err
 }
 
 func (d *Databases) ReadLocalProjectRetirement(ctx context.Context, projectID string) (LocalProjectRetirement, bool, error) {
@@ -219,6 +250,14 @@ func (d *Databases) ListSharedProjectRetirements(ctx context.Context) ([]model.P
 }
 
 func (d *Databases) RetireSharedProject(ctx context.Context, projectID, reason string, retiredAt time.Time) (model.ProjectRetirement, bool, error) {
+	return d.retireSharedProject(ctx, projectID, reason, retiredAt, ProjectRetirementLegacyEpochEvidence{})
+}
+
+func (d *Databases) RetireSharedProjectWithLegacyEpochEvidence(ctx context.Context, projectID, reason string, retiredAt time.Time, evidence ProjectRetirementLegacyEpochEvidence) (model.ProjectRetirement, bool, error) {
+	return d.retireSharedProject(ctx, projectID, reason, retiredAt, evidence)
+}
+
+func (d *Databases) retireSharedProject(ctx context.Context, projectID, reason string, retiredAt time.Time, evidence ProjectRetirementLegacyEpochEvidence) (model.ProjectRetirement, bool, error) {
 	if d == nil || d.Shared == nil {
 		return model.ProjectRetirement{}, false, fmt.Errorf("Shared store is unavailable")
 	}
@@ -229,7 +268,7 @@ func (d *Databases) RetireSharedProject(ctx context.Context, projectID, reason s
 		if existing, found, err := d.ReadSharedProjectRetirement(ctx, projectID); err != nil {
 			return model.ProjectRetirement{}, false, err
 		} else if found {
-			if existing.Reason != reason {
+			if existing.Reason != reason || existing.LegacyCallbackEpochCount != evidence.Count || existing.LegacyCallbackEpochSHA256 != evidence.SHA256 {
 				return model.ProjectRetirement{}, false, ErrProjectRetirementConflict
 			}
 			return existing, false, nil
@@ -257,6 +296,8 @@ func (d *Databases) RetireSharedProject(ctx context.Context, projectID, reason s
 			ConfigurationRevision:       configurationRevision,
 			CancelledConfigPublications: len(pending),
 			CancelledConfigOutboxSHA256: pendingProjectConfigurationDigest(pending),
+			LegacyCallbackEpochCount:    evidence.Count,
+			LegacyCallbackEpochSHA256:   evidence.SHA256,
 		}
 		if err := model.ValidateProjectRetirement(record); err != nil {
 			return model.ProjectRetirement{}, false, err

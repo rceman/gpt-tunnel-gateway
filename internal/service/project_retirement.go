@@ -31,11 +31,12 @@ var (
 )
 
 type DebugProjectRetirementResult struct {
-	ProjectID             string `json:"project_id"`
-	Status                string `json:"status"`
-	ConfigurationRevision int    `json:"configuration_revision"`
-	CancelledPublications int    `json:"cancelled_config_publications"`
-	AlreadyRetired        bool   `json:"already_retired"`
+	ProjectID                string `json:"project_id"`
+	Status                   string `json:"status"`
+	ConfigurationRevision    int    `json:"configuration_revision"`
+	CancelledPublications    int    `json:"cancelled_config_publications"`
+	AlreadyRetired           bool   `json:"already_retired"`
+	LegacyCallbackEpochCount int    `json:"legacy_callback_epoch_count,omitempty"`
 }
 
 func (s *Service) DebugRetireProject(ctx context.Context, projectID, reason string) (DebugProjectRetirementResult, error) {
@@ -88,7 +89,8 @@ func (s *Service) DebugRetireProject(ctx context.Context, projectID, reason stri
 			return DebugProjectRetirementResult{}, sqlitestore.ErrProjectRetirementConflict
 		}
 	}
-	if !sharedFound && !hubFound {
+	debugTransition := !sharedFound && !hubFound
+	if debugTransition {
 		if localFound {
 			preliminary.RetiredAt = localRetirement.RetiredAt
 		} else {
@@ -100,10 +102,21 @@ func (s *Service) DebugRetireProject(ctx context.Context, projectID, reason stri
 				return DebugProjectRetirementResult{}, fmt.Errorf("project retirement target has no active local, Hub, or Shared authority")
 			}
 		}
+		evidence, err := s.Durability.ReadProjectRetirementLegacyEpochEvidence(ctx, projectID)
+		if err != nil {
+			return DebugProjectRetirementResult{}, err
+		}
+		preliminary.LegacyCallbackEpochCount = evidence.Count
+		preliminary.LegacyCallbackEpochSHA256 = evidence.SHA256
 		retirement = preliminary
 		now = retirement.RetiredAt
 	}
-	if err := s.Durability.BeginLocalProjectRetirement(ctx, retirement); err != nil {
+	if debugTransition {
+		err = s.Durability.BeginDebugProjectRetirementWithLegacyEpochEvidence(ctx, retirement)
+	} else {
+		err = s.Durability.BeginLocalProjectRetirement(ctx, retirement)
+	}
+	if err != nil {
 		return DebugProjectRetirementResult{}, err
 	}
 	created := false
@@ -113,7 +126,10 @@ func (s *Service) DebugRetireProject(ctx context.Context, projectID, reason stri
 		}
 		sharedFound = true
 	} else if !sharedFound {
-		retirement, created, err = s.Durability.RetireSharedProject(ctx, projectID, reason, now)
+		evidence := sqlitestore.ProjectRetirementLegacyEpochEvidence{
+			Count: retirement.LegacyCallbackEpochCount, SHA256: retirement.LegacyCallbackEpochSHA256,
+		}
+		retirement, created, err = s.Durability.RetireSharedProjectWithLegacyEpochEvidence(ctx, projectID, reason, now, evidence)
 		if err != nil {
 			return DebugProjectRetirementResult{}, err
 		}
@@ -133,11 +149,12 @@ func (s *Service) DebugRetireProject(ctx context.Context, projectID, reason stri
 		return DebugProjectRetirementResult{}, err
 	}
 	return DebugProjectRetirementResult{
-		ProjectID:             projectID,
-		Status:                "retired",
-		ConfigurationRevision: retirement.ConfigurationRevision,
-		CancelledPublications: retirement.CancelledConfigPublications,
-		AlreadyRetired:        localFound || !created && (sharedFound || hubFound),
+		ProjectID:                projectID,
+		Status:                   "retired",
+		ConfigurationRevision:    retirement.ConfigurationRevision,
+		CancelledPublications:    retirement.CancelledConfigPublications,
+		AlreadyRetired:           localFound || !created && (sharedFound || hubFound),
+		LegacyCallbackEpochCount: retirement.LegacyCallbackEpochCount,
 	}, nil
 }
 
@@ -198,7 +215,20 @@ func (s *Service) SyncProjectRetirements(ctx context.Context) error {
 			return sqlitestore.ErrProjectRetirementConflict
 		}
 		if !found {
-			record, _, err = s.Durability.RetireSharedProject(ctx, local.ProjectID, local.Reason, local.RetiredAt)
+			evidence, err := s.Durability.ReadProjectRetirementLegacyEpochEvidence(ctx, local.ProjectID)
+			if err != nil {
+				return err
+			}
+			record = model.ProjectRetirement{
+				SchemaVersion: model.ProjectRetirementSchemaVersion, ProjectID: local.ProjectID, Revision: 1,
+				Reason: local.Reason, Actor: "gatewayd", RetiredAt: local.RetiredAt,
+				CancelledConfigOutboxSHA256: sha256Hex(nil),
+				LegacyCallbackEpochCount:    evidence.Count, LegacyCallbackEpochSHA256: evidence.SHA256,
+			}
+			if err := s.Durability.BeginLocalProjectRetirement(ctx, record); err != nil {
+				return err
+			}
+			record, _, err = s.Durability.RetireSharedProjectWithLegacyEpochEvidence(ctx, local.ProjectID, local.Reason, local.RetiredAt, evidence)
 			if err != nil {
 				return err
 			}

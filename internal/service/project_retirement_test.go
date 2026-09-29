@@ -116,10 +116,22 @@ func TestDebugProjectRetirementTransitionExcludesStaleProjectsAndPreservesGatewa
 			t.Fatalf("project %q missing from active registry before retirement: %#v", projectID, beforeIDs)
 		}
 	}
+	for i := 1; i <= 13; i++ {
+		if _, err := db.Local.Exec(ctx, `INSERT INTO local_callback_epochs(epoch_id,project_id,agent_id,session_key,armed_at,busy_seen,idle_observations,emitted_at,operation_id,hook_outcome,hook_completed_at,session_id) VALUES(?,?,?,?,?,?,?,?,NULL,'',NULL,'')`, "legacy-reposuite-"+strconv.Itoa(i), "reposuite-mcp", "coder-reposuite", "reposuite_mcp_worker", now.Format(time.RFC3339Nano), 1, 2, now.Add(time.Minute).Format(time.RFC3339Nano)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	legacyEvidence, err := db.ReadProjectRetirementLegacyEpochEvidence(ctx, "reposuite-mcp")
+	if err != nil || legacyEvidence.Count != 13 || legacyEvidence.SHA256 == "" {
+		t.Fatalf("legacy callback epoch evidence=%#v err=%v", legacyEvidence, err)
+	}
 	for _, projectID := range projectIDs[:2] {
 		result, err := s.DebugRetireProject(ctx, projectID, "stale transition project")
 		if err != nil || result.Status != "retired" || result.ConfigurationRevision != 3 || result.CancelledPublications != 2 || result.AlreadyRetired {
 			t.Fatalf("retire %s: result=%#v err=%v", projectID, result, err)
+		}
+		if projectID == "reposuite-mcp" && result.LegacyCallbackEpochCount != legacyEvidence.Count {
+			t.Fatalf("retirement receipt lost legacy epoch evidence: result=%#v want=%#v", result, legacyEvidence)
 		}
 		replayed, err := s.DebugRetireProject(ctx, projectID, "stale transition project")
 		if err != nil || !replayed.AlreadyRetired {
@@ -145,6 +157,13 @@ func TestDebugProjectRetirementTransitionExcludesStaleProjectsAndPreservesGatewa
 		if err := decodeStrict(retirementData, &retirement); err != nil || model.ValidateProjectRetirement(retirement) != nil || retirement.ProjectID != projectID {
 			t.Fatalf("portable Hub retirement marker %q invalid: record=%#v err=%v", projectID, retirement, err)
 		}
+		sharedRetirement, sharedFound, err := db.ReadSharedProjectRetirement(ctx, projectID)
+		if err != nil || !sharedFound || !sameProjectRetirementRecord(retirement, sharedRetirement) {
+			t.Fatalf("Shared and Hub retirement evidence differ for %q: shared=%#v hub=%#v found=%v err=%v", projectID, sharedRetirement, retirement, sharedFound, err)
+		}
+		if projectID == "reposuite-mcp" && (retirement.LegacyCallbackEpochCount != legacyEvidence.Count || retirement.LegacyCallbackEpochSHA256 != legacyEvidence.SHA256) {
+			t.Fatalf("portable retirement evidence lost legacy epoch identities: %#v", retirement)
+		}
 		rows, err := db.Shared.Query(ctx, `SELECT COUNT(*) FROM shared_project_configurations WHERE id=?`, projectID)
 		if err != nil || len(rows.Rows) != 1 || rows.Rows[0][0] != int64(0) {
 			t.Fatalf("retired Shared configuration %q remains active: rows=%#v err=%v", projectID, rows, err)
@@ -157,6 +176,14 @@ func TestDebugProjectRetirementTransitionExcludesStaleProjectsAndPreservesGatewa
 		if err != nil || len(history.Rows) != 1 || history.Rows[0][0] != int64(1) {
 			t.Fatalf("retirement deleted %q configuration history: rows=%#v err=%v", projectID, history, err)
 		}
+	}
+	epochRows, err := db.Local.Query(ctx, `SELECT COUNT(*),SUM(emitted_at IS NOT NULL),COUNT(operation_id),MIN(hook_outcome),COUNT(hook_completed_at),SUM(session_id='') FROM local_callback_epochs WHERE project_id=?`, "reposuite-mcp")
+	if err != nil || len(epochRows.Rows) != 1 || epochRows.Rows[0][0] != int64(13) || epochRows.Rows[0][1] != int64(13) || epochRows.Rows[0][2] != int64(0) || epochRows.Rows[0][3] != "" || epochRows.Rows[0][4] != int64(0) || epochRows.Rows[0][5] != int64(13) {
+		t.Fatalf("legacy callback epochs were mutated during retirement: rows=%#v err=%v", epochRows, err)
+	}
+	retainedEvidence, err := db.ReadProjectRetirementLegacyEpochEvidence(ctx, "reposuite-mcp")
+	if err != nil || retainedEvidence != legacyEvidence {
+		t.Fatalf("legacy callback epoch identities changed during retirement: evidence=%#v err=%v", retainedEvidence, err)
 	}
 	if err := s.deliverSharedOutboxEntry(ctx, staleConfigEntry); err != nil {
 		t.Fatalf("stale in-flight ProjectConfiguration publication was not cancelled: %v", err)
@@ -195,6 +222,10 @@ func TestDebugProjectRetirementTransitionExcludesStaleProjectsAndPreservesGatewa
 	complete, err := db.ProjectConfigurationMigrationComplete(ctx)
 	if err != nil || !complete {
 		t.Fatalf("migration complete=%v err=%v", complete, err)
+	}
+	remainingConfigurations, err := db.Shared.Query(ctx, `SELECT id FROM shared_project_configurations ORDER BY id`)
+	if err != nil || len(remainingConfigurations.Rows) != 1 || remainingConfigurations.Rows[0][0] != "gpt-tunnel-gateway" {
+		t.Fatalf("deferred migration did not leave only the active Gateway configuration: rows=%#v err=%v", remainingConfigurations.Rows, err)
 	}
 
 	staleProject, staleConfiguration := retirementHubProject(t, "agentir", now)

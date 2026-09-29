@@ -1456,6 +1456,11 @@ domains:
                     type: integer
                 key:
                     ref: EntityKeyAndReference
+                legacy_callback_epoch_count:
+                    description: Legacy emitted callback epochs accepted by this transition.
+                    maximum: 4096
+                    minimum: 0
+                    type: integer
                 status:
                     enum:
                         - retired

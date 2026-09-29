@@ -359,6 +359,153 @@ func TestLocalProjectRetirementBlocksNonterminalOperationExecutionAndCallback(t 
 	}
 }
 
+func TestDebugProjectRetirementAcceptsOnlyExactLegacyCallbackEpochs(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 9, 29, 8, 0, 0, 0, time.UTC)
+
+	t.Run("exact legacy set is evidenced and preserved", func(t *testing.T) {
+		db, err := Open(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		for i := 1; i <= 13; i++ {
+			insertProjectRetirementCallbackEpoch(t, db, fmt.Sprintf("legacy-%02d", i), "reposuite-mcp", now.Add(time.Duration(i)*time.Second), nil, "", nil, "", now)
+		}
+		evidence, err := db.ReadProjectRetirementLegacyEpochEvidence(ctx, "reposuite-mcp")
+		if err != nil || evidence.Count != 13 || evidence.SHA256 == "" {
+			t.Fatalf("legacy epoch evidence=%#v err=%v", evidence, err)
+		}
+		retirement := model.ProjectRetirement{
+			SchemaVersion: model.ProjectRetirementSchemaVersion, ProjectID: "reposuite-mcp", Revision: 1,
+			Reason: "owner-retired project", Actor: "gatewayd", RetiredAt: now,
+			CancelledConfigOutboxSHA256: pendingProjectConfigurationDigest(nil),
+			LegacyCallbackEpochCount:    evidence.Count, LegacyCallbackEpochSHA256: evidence.SHA256,
+		}
+		if err := db.BeginLocalProjectRetirement(ctx, retirement); !errors.Is(err, ErrProjectRetirementUnsafe) {
+			t.Fatalf("ordinary retirement gate accepted legacy epochs: %v", err)
+		}
+		if err := db.BeginDebugProjectRetirementWithLegacyEpochEvidence(ctx, retirement); err != nil {
+			t.Fatalf("debug retirement rejected exact legacy epochs: %v", err)
+		}
+		if err := db.BeginLocalProjectRetirement(ctx, retirement); err != nil {
+			t.Fatalf("idempotent retirement replay rejected recorded legacy evidence: %v", err)
+		}
+		retained, err := db.ReadProjectRetirementLegacyEpochEvidence(ctx, "reposuite-mcp")
+		if err != nil || retained != evidence {
+			t.Fatalf("legacy epochs were not preserved: got=%#v want=%#v err=%v", retained, evidence, err)
+		}
+		rows, err := db.Local.Query(ctx, `SELECT COUNT(*),SUM(emitted_at IS NOT NULL),COUNT(operation_id),MIN(hook_outcome),COUNT(hook_completed_at),SUM(session_id='') FROM local_callback_epochs WHERE project_id=?`, "reposuite-mcp")
+		if err != nil || len(rows.Rows) != 1 || rows.Rows[0][0] != int64(13) || rows.Rows[0][1] != int64(13) || rows.Rows[0][2] != int64(0) || rows.Rows[0][3] != "" || rows.Rows[0][4] != int64(0) || rows.Rows[0][5] != int64(13) {
+			t.Fatalf("retirement mutated legacy callback rows: rows=%#v err=%v", rows, err)
+		}
+	})
+
+	for _, tc := range []struct {
+		name          string
+		emittedAt     any
+		operationID   any
+		outcome       string
+		hookCompleted any
+		sessionID     string
+	}{
+		{name: "operation link", emittedAt: now.Format(time.RFC3339Nano), operationID: "GTW-OPR1", outcome: ""},
+		{name: "session link", emittedAt: now.Format(time.RFC3339Nano), outcome: "", sessionID: "HOM_GTW_W_ABCDEFGH"},
+		{name: "hook completion timestamp", emittedAt: now.Format(time.RFC3339Nano), outcome: "", hookCompleted: now.Format(time.RFC3339Nano)},
+		{name: "nonempty hook outcome", emittedAt: now.Format(time.RFC3339Nano), outcome: "pending"},
+		{name: "missing emitted timestamp", outcome: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, err := Open(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			insertProjectRetirementCallbackEpoch(t, db, "near-miss", "reposuite-mcp", tc.emittedAt, tc.operationID, tc.outcome, tc.hookCompleted, tc.sessionID, now)
+			evidence, err := db.ReadProjectRetirementLegacyEpochEvidence(ctx, "reposuite-mcp")
+			if err != nil || evidence.Count != 0 {
+				t.Fatalf("near-miss epoch entered legacy evidence: evidence=%#v err=%v", evidence, err)
+			}
+			retirement := model.ProjectRetirement{
+				SchemaVersion: model.ProjectRetirementSchemaVersion, ProjectID: "reposuite-mcp", Revision: 1,
+				Reason: "owner-retired project", Actor: "gatewayd", RetiredAt: now,
+				CancelledConfigOutboxSHA256: pendingProjectConfigurationDigest(nil),
+			}
+			if err := db.BeginDebugProjectRetirementWithLegacyEpochEvidence(ctx, retirement); !errors.Is(err, ErrProjectRetirementUnsafe) {
+				t.Fatalf("debug retirement did not hard-block near-miss epoch: %v", err)
+			}
+		})
+	}
+
+	for _, name := range []string{"active Session", "nonterminal Operation"} {
+		t.Run(name+" remains a blocker", func(t *testing.T) {
+			db, err := Open(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			insertProjectRetirementCallbackEpoch(t, db, "legacy-linked", "reposuite-mcp", now.Format(time.RFC3339Nano), nil, "", nil, "", now)
+			if name == "active Session" {
+				if err := db.CreateLocalSession(ctx, LocalSession{
+					ID:          "HOM_GTW_W_ABCDEFGH",
+					ProjectID:   "reposuite-mcp",
+					SessionType: "chatgpt",
+					Payload:     []byte(`{"project_id":"reposuite-mcp","session_type":"chatgpt","status":"active"}`),
+					UpdatedAt:   now.Format(time.RFC3339Nano),
+					Status:      "active",
+				}); err != nil {
+					t.Fatal(err)
+				}
+			} else if _, err := db.AllocateLocalOperation(ctx, "reposuite-mcp", "RSM", strings.Repeat("a", 64), "task-authoring-update", now); err != nil {
+				t.Fatal(err)
+			}
+			evidence, err := db.ReadProjectRetirementLegacyEpochEvidence(ctx, "reposuite-mcp")
+			if err != nil {
+				t.Fatal(err)
+			}
+			retirement := model.ProjectRetirement{
+				SchemaVersion: model.ProjectRetirementSchemaVersion, ProjectID: "reposuite-mcp", Revision: 1,
+				Reason: "owner-retired project", Actor: "gatewayd", RetiredAt: now,
+				CancelledConfigOutboxSHA256: pendingProjectConfigurationDigest(nil),
+				LegacyCallbackEpochCount:    evidence.Count, LegacyCallbackEpochSHA256: evidence.SHA256,
+			}
+			if err := db.BeginDebugProjectRetirementWithLegacyEpochEvidence(ctx, retirement); !errors.Is(err, ErrProjectRetirementUnsafe) {
+				t.Fatalf("debug retirement bypassed %s: %v", name, err)
+			}
+		})
+	}
+
+	for _, outcome := range []string{"completed", "failed", "unbound"} {
+		t.Run("normal terminal outcome "+outcome, func(t *testing.T) {
+			db, err := Open(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			insertProjectRetirementCallbackEpoch(t, db, "terminal", "reposuite-mcp", now.Format(time.RFC3339Nano), nil, outcome, nil, "", now)
+			retirement := model.ProjectRetirement{
+				SchemaVersion: model.ProjectRetirementSchemaVersion, ProjectID: "reposuite-mcp", Revision: 1,
+				Reason: "owner-retired project", Actor: "gatewayd", RetiredAt: now,
+				CancelledConfigOutboxSHA256: pendingProjectConfigurationDigest(nil),
+			}
+			if err := db.BeginLocalProjectRetirement(ctx, retirement); err != nil {
+				t.Fatalf("normal terminal epoch was newly blocked: %v", err)
+			}
+		})
+	}
+}
+
+func insertProjectRetirementCallbackEpoch(t *testing.T, db *Databases, id, projectID string, emittedAt, operationID any, outcome string, hookCompletedAt any, sessionID string, now time.Time) {
+	t.Helper()
+	if at, ok := emittedAt.(time.Time); ok {
+		emittedAt = at.Format(time.RFC3339Nano)
+	}
+	_, err := db.Local.Exec(context.Background(), `INSERT INTO local_callback_epochs(epoch_id,project_id,agent_id,session_key,armed_at,busy_seen,idle_observations,emitted_at,operation_id,hook_outcome,hook_completed_at,session_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, id, projectID, "coder-"+projectID, "project_worker", now.Format(time.RFC3339Nano), 1, 2, emittedAt, operationID, outcome, hookCompletedAt, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func projectRetirementLegacyPayload(t *testing.T, projectID string, revision int64) []byte {
 	t.Helper()
 	payload, err := json.Marshal(map[string]any{"schema_version": 2, "project_id": projectID, "revision": revision, "legacy": true})

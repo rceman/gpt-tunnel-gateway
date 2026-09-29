@@ -131,10 +131,12 @@ func TestDebugProjectRetireInputIsClosedAndExact(t *testing.T) {
 		t.Fatalf("retirement handler input mapping=%#v err=%v", adaptedInput, err)
 	}
 	adaptedOutput, err := server.actionContractSet().AdaptOutput("debug/project-retire", map[string]any{
-		"project_id": "agentir", "status": "retired", "configuration_revision": 3,
+		"project_id": "reposuite-mcp", "status": "retired", "configuration_revision": 3,
 		"cancelled_config_publications": 2, "already_retired": false,
+		"legacy_callback_epoch_count": 13,
 	})
-	if err != nil || adaptedOutput.(map[string]any)["key"] != "agentir" {
+	outputObject, ok := adaptedOutput.(map[string]any)
+	if err != nil || !ok || outputObject["key"] != "reposuite-mcp" || outputObject["legacy_callback_epoch_count"] != json.Number("13") {
 		t.Fatalf("retirement handler output mapping=%#v err=%v", adaptedOutput, err)
 	}
 }
