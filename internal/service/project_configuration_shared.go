@@ -41,6 +41,13 @@ func requireSharedProjectConfiguration(ctx context.Context, s *Service, projectI
 }
 
 func (s *Service) publishSharedProjectConfiguration(ctx context.Context, configuration model.ProjectConfiguration) error {
+	if s.Durability != nil {
+		if _, found, err := s.Durability.ReadSharedProjectRetirement(ctx, configuration.ProjectID); err != nil {
+			return err
+		} else if found {
+			return errSharedOutboxCancelled
+		}
+	}
 	if err := model.ValidateProjectConfiguration(configuration); err != nil {
 		return err
 	}
@@ -49,6 +56,13 @@ func (s *Service) publishSharedProjectConfiguration(ctx context.Context, configu
 	}
 	path := s.projectConfigurationPath(configuration.ProjectID)
 	_, err := s.Hub.Transact(ctx, "", "gateway: publish Shared project configuration "+configuration.ProjectID, func(worktree string) ([]string, error) {
+		if s.Durability != nil {
+			if _, found, err := s.Durability.ReadSharedProjectRetirement(ctx, configuration.ProjectID); err != nil {
+				return nil, err
+			} else if found {
+				return nil, errSharedOutboxCancelled
+			}
+		}
 		var latestRaw json.RawMessage
 		readErr := readWorktreeJSON(worktree, path, &latestRaw)
 		if readErr == nil {

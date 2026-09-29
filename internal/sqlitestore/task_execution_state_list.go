@@ -13,7 +13,7 @@ func (d *Databases) ListTaskExecutionStates(ctx context.Context, projectID strin
 	if d == nil || d.Local == nil {
 		return nil, fmt.Errorf("local store is unavailable")
 	}
-	rows, err := d.Local.Query(ctx, `SELECT task_id,project_id,task_revision,task_revision_sha256,status,stage,worktree,base_head_sha,head_sha,branch,agent,execution_revision,updated_at FROM local_task_execution_states WHERE project_id=? ORDER BY task_id`, projectID)
+	rows, err := d.Local.Query(ctx, `SELECT task_id,project_id,task_revision,task_revision_sha256,status,stage,worktree,base_head_sha,head_sha,branch,agent,execution_revision,updated_at FROM local_task_execution_states WHERE project_id=? AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=local_task_execution_states.project_id) ORDER BY task_id`, projectID)
 	if err != nil {
 		return nil, err
 	}

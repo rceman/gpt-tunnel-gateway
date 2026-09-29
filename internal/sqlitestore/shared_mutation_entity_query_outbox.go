@@ -55,6 +55,32 @@ func (d *Databases) PutSharedProjection(ctx context.Context, entityType string, 
 	if entity.ID == "" || entity.Revision < 1 || len(entity.Payload) == 0 || entity.UpdatedAt == "" {
 		return fmt.Errorf("invalid shared projection")
 	}
+	if entityType == "project_configuration" {
+		retired, err := d.IsLocalProjectRetired(ctx, entity.ID)
+		if err != nil {
+			return err
+		}
+		if retired {
+			return ErrLocalProjectRetired
+		}
+		if _, found, err := d.ReadSharedProjectRetirement(ctx, entity.ID); err != nil {
+			return err
+		} else if found {
+			return ErrProjectRetirementConflict
+		}
+		result, err := d.Shared.Exec(ctx, fmt.Sprintf(`INSERT INTO %s(id,revision,payload,updated_at) SELECT ?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM shared_project_retirements WHERE project_id=?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,payload=excluded.payload,updated_at=excluded.updated_at WHERE excluded.revision >= %s.revision`, table, table), entity.ID, entity.Revision, entity.Payload, entity.UpdatedAt, entity.ID)
+		if err != nil {
+			return err
+		}
+		if result.RowsAffected == 0 {
+			if _, found, err := d.ReadSharedProjectRetirement(ctx, entity.ID); err != nil {
+				return err
+			} else if found {
+				return ErrProjectRetirementConflict
+			}
+		}
+		return nil
+	}
 	_, err := d.Shared.Exec(ctx, fmt.Sprintf(`INSERT INTO %s(id,revision,payload,updated_at) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,payload=excluded.payload,updated_at=excluded.updated_at WHERE excluded.revision >= %s.revision`, table, table), entity.ID, entity.Revision, entity.Payload, entity.UpdatedAt)
 	return err
 }
@@ -174,7 +200,7 @@ func (d *Databases) PendingOutbox(ctx context.Context, limit int) ([]OutboxEntry
 	if limit < 1 || limit > 1000 {
 		return nil, fmt.Errorf("invalid outbox limit")
 	}
-	rows, err := d.Shared.Query(ctx, `SELECT id,entity_type,entity_id,revision,kind,payload,created_at,COALESCE(published_at,''),attempts,COALESCE(next_attempt_at,''),COALESCE(last_error,'') FROM hub_outbox WHERE published_at IS NULL AND (next_attempt_at IS NULL OR next_attempt_at='' OR next_attempt_at<=?) ORDER BY created_at,id LIMIT ?`, time.Now().UTC().Format(time.RFC3339Nano), limit)
+	rows, err := d.Shared.Query(ctx, `SELECT id,entity_type,entity_id,revision,kind,payload,created_at,COALESCE(published_at,''),attempts,COALESCE(next_attempt_at,''),COALESCE(last_error,'') FROM hub_outbox WHERE published_at IS NULL AND cancelled_at IS NULL AND (next_attempt_at IS NULL OR next_attempt_at='' OR next_attempt_at<=?) ORDER BY created_at,id LIMIT ?`, time.Now().UTC().Format(time.RFC3339Nano), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +229,7 @@ func (d *Databases) MarkOutboxPublished(ctx context.Context, id string, at time.
 	if id == "" {
 		return fmt.Errorf("outbox id is required")
 	}
-	_, err := d.Shared.Exec(ctx, `UPDATE hub_outbox SET published_at=? WHERE id=? AND published_at IS NULL`, at.UTC().Format(time.RFC3339Nano), id)
+	_, err := d.Shared.Exec(ctx, `UPDATE hub_outbox SET published_at=? WHERE id=? AND published_at IS NULL AND cancelled_at IS NULL`, at.UTC().Format(time.RFC3339Nano), id)
 	return err
 }
 
@@ -221,7 +247,7 @@ func (d *Databases) MarkOutboxRetry(ctx context.Context, id string, at time.Time
 	if len(message) > 512 {
 		message = message[:512]
 	}
-	_, err := d.Shared.Exec(ctx, `UPDATE hub_outbox SET attempts=attempts+1,next_attempt_at=?,last_error=? WHERE id=? AND published_at IS NULL`, at.UTC().Format(time.RFC3339Nano), message, id)
+	_, err := d.Shared.Exec(ctx, `UPDATE hub_outbox SET attempts=attempts+1,next_attempt_at=?,last_error=? WHERE id=? AND published_at IS NULL AND cancelled_at IS NULL`, at.UTC().Format(time.RFC3339Nano), message, id)
 	return err
 }
 
@@ -236,7 +262,7 @@ func (d *Databases) SharedSyncHealth(ctx context.Context) (SharedSyncHealth, err
 	if d == nil || d.Shared == nil {
 		return SharedSyncHealth{}, fmt.Errorf("shared store is unavailable")
 	}
-	rows, err := d.Shared.Query(ctx, `SELECT COUNT(*),COALESCE(SUM(CASE WHEN attempts>0 THEN 1 ELSE 0 END),0),COALESCE((SELECT last_error FROM hub_outbox WHERE published_at IS NULL AND last_error<>'' ORDER BY created_at DESC LIMIT 1),'') FROM hub_outbox WHERE published_at IS NULL`)
+	rows, err := d.Shared.Query(ctx, `SELECT COUNT(*),COALESCE(SUM(CASE WHEN attempts>0 THEN 1 ELSE 0 END),0),COALESCE((SELECT last_error FROM hub_outbox WHERE published_at IS NULL AND cancelled_at IS NULL AND last_error<>'' ORDER BY created_at DESC LIMIT 1),'') FROM hub_outbox WHERE published_at IS NULL AND cancelled_at IS NULL`)
 	if err != nil {
 		return SharedSyncHealth{}, err
 	}

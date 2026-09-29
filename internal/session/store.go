@@ -109,7 +109,7 @@ func (s Store) CreateAdmin(label *string) (Record, error) {
 		if err != nil {
 			return Record{}, err
 		}
-		err = s.Durability.CreateLocalSession(context.Background(), sqlitestore.LocalSession{ID: id, Payload: payload, UpdatedAt: now.Format(time.RFC3339Nano), Status: record.Status})
+		err = s.Durability.CreateLocalSession(context.Background(), sqlitestore.LocalSession{ID: id, ProjectID: record.ProjectID, SessionType: record.SessionType, Payload: payload, UpdatedAt: now.Format(time.RFC3339Nano), Status: record.Status})
 		if errors.Is(err, sqlitestore.ErrLocalSessionExists) {
 			continue
 		}
@@ -157,7 +157,7 @@ func (s Store) create(input CreateInput, requireProject bool) (Record, error) {
 		if err != nil {
 			return Record{}, err
 		}
-		err = s.Durability.CreateLocalSession(context.Background(), sqlitestore.LocalSession{ID: id, Payload: payload, UpdatedAt: now.Format(time.RFC3339Nano), Status: record.Status})
+		err = s.Durability.CreateLocalSession(context.Background(), sqlitestore.LocalSession{ID: id, ProjectID: record.ProjectID, SessionType: record.SessionType, Payload: payload, UpdatedAt: now.Format(time.RFC3339Nano), Status: record.Status})
 		if errors.Is(err, sqlitestore.ErrLocalSessionExists) {
 			continue
 		}

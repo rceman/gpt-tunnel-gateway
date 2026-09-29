@@ -168,15 +168,39 @@ func (s *Service) ProjectList(ctx context.Context) ([]model.Project, error) {
 }
 
 func (s *Service) projectListAll(ctx context.Context) ([]model.Project, error) {
-	paths, err := s.Hub.List(ctx, hub.ProtocolRoot+"/projects", "/project.json")
+	root := hub.ProtocolRoot + "/projects"
+	paths, err := s.Hub.List(ctx, root, "/project.json")
 	if err != nil {
 		return nil, err
 	}
 	items := []model.Project{}
 	for _, path := range paths {
+		if !strings.HasPrefix(path, root+"/") || !strings.HasSuffix(path, "/project.json") {
+			return nil, fmt.Errorf("invalid Hub project path")
+		}
+		projectID := strings.TrimSuffix(strings.TrimPrefix(path, root+"/"), "/project.json")
+		if model.ValidateProjectIdentifier(projectID) != nil || s.projectPath(projectID) != path {
+			return nil, fmt.Errorf("invalid Hub project identity path")
+		}
+		retired, err := s.isProjectRetired(ctx, projectID)
+		if err != nil {
+			return nil, err
+		}
+		if !retired {
+			_, retired, err = s.readHubProjectRetirement(ctx, projectID)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if retired {
+			continue
+		}
 		var p model.Project
 		if err := s.Hub.ReadJSON(ctx, path, &p); err != nil {
 			return nil, err
+		}
+		if p.ID != projectID {
+			return nil, fmt.Errorf("Hub project path and identity mismatch")
 		}
 		items = append(items, p)
 	}
@@ -235,14 +259,43 @@ func (s *Service) ValidateConfiguredProjectRecords(ctx context.Context) error {
 }
 
 func (s *Service) ProjectRead(ctx context.Context, id string) (model.Project, error) {
+	if err := model.ValidateProjectIdentifier(id); err != nil {
+		return model.Project{}, err
+	}
+	retired, err := s.isProjectRetired(ctx, id)
+	if err != nil {
+		return model.Project{}, err
+	}
+	if !retired {
+		_, retired, err = s.readHubProjectRetirement(ctx, id)
+		if err != nil {
+			return model.Project{}, err
+		}
+	}
+	if retired {
+		return model.Project{}, fmt.Errorf("project %q is retired", id)
+	}
 	var p model.Project
-	err := s.Hub.ReadJSON(ctx, s.projectPath(id), &p)
+	err = s.Hub.ReadJSON(ctx, s.projectPath(id), &p)
 	return p, err
 }
 
 func (s *Service) ProjectIdentifiersRead(ctx context.Context, projectID string) (model.ProjectIdentifiers, error) {
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return model.ProjectIdentifiers{}, err
+	}
+	retired, err := s.isProjectRetired(ctx, projectID)
+	if err != nil {
+		return model.ProjectIdentifiers{}, err
+	}
+	if !retired {
+		_, retired, err = s.readHubProjectRetirement(ctx, projectID)
+		if err != nil {
+			return model.ProjectIdentifiers{}, err
+		}
+	}
+	if retired {
+		return model.ProjectIdentifiers{}, fmt.Errorf("project %q is retired", projectID)
 	}
 	var identifiers model.ProjectIdentifiers
 	if err := s.Hub.ReadJSON(ctx, s.projectIdentifiersPath(projectID), &identifiers); err != nil {

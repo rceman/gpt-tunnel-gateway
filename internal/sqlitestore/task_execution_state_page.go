@@ -30,7 +30,7 @@ func (d *Databases) ListTaskExecutionStatesPage(ctx context.Context, projectID, 
 		return TaskExecutionStatePage{}, fmt.Errorf("invalid Task execution state page limit")
 	}
 	if after.TaskID != "" {
-		rows, err := d.Local.Query(ctx, `SELECT COUNT(*) FROM local_task_execution_states WHERE project_id=? AND task_id=? AND worktree=? AND updated_at=? AND status NOT IN (?,?)`, projectID, after.TaskID, after.Worktree, after.UpdatedAt, model.TaskExecutionDone, model.TaskExecutionFailed)
+		rows, err := d.Local.Query(ctx, `SELECT COUNT(*) FROM local_task_execution_states WHERE project_id=? AND task_id=? AND worktree=? AND updated_at=? AND status NOT IN (?,?) AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=local_task_execution_states.project_id)`, projectID, after.TaskID, after.Worktree, after.UpdatedAt, model.TaskExecutionDone, model.TaskExecutionFailed)
 		if err != nil {
 			return TaskExecutionStatePage{}, err
 		}
@@ -38,7 +38,7 @@ func (d *Databases) ListTaskExecutionStatesPage(ctx context.Context, projectID, 
 			return TaskExecutionStatePage{}, fmt.Errorf("continuation cursor is no longer valid")
 		}
 	}
-	where := `project_id=? AND status NOT IN (?,?)`
+	where := `project_id=? AND status NOT IN (?,?) AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=local_task_execution_states.project_id)`
 	args := []any{projectID, model.TaskExecutionDone, model.TaskExecutionFailed}
 	if query != "" {
 		where += ` AND (instr(worktree,?) > 0 OR instr(task_id,?) > 0)`

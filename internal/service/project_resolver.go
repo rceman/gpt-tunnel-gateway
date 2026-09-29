@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"sort"
@@ -29,13 +30,33 @@ func (s *Service) resolveProjects() (ProjectResolution, error) {
 	if err != nil {
 		return ProjectResolution{}, fmt.Errorf("resolve effective projects: %w", err)
 	}
+	activeManaged := maps.Clone(managed.Projects)
+	ctx := context.Background()
+	if s.Durability != nil {
+		localRetirements, err := s.Durability.LocalProjectRetirementIDs(ctx)
+		if err != nil {
+			return ProjectResolution{}, fmt.Errorf("load Local project retirements: %w", err)
+		}
+		for id := range localRetirements {
+			delete(projects, id)
+			delete(activeManaged, id)
+		}
+		sharedRetirements, err := s.Durability.ListSharedProjectRetirements(ctx)
+		if err != nil {
+			return ProjectResolution{}, fmt.Errorf("load Shared project retirements: %w", err)
+		}
+		for _, retirement := range sharedRetirements {
+			delete(projects, retirement.ProjectID)
+			delete(activeManaged, retirement.ProjectID)
+		}
+	}
 	digest, err := managed.Digest()
 	if err != nil {
 		return ProjectResolution{}, fmt.Errorf("digest managed project registry: %w", err)
 	}
 	return ProjectResolution{
 		Projects:                projects,
-		ManagedProjects:         maps.Clone(managed.Projects),
+		ManagedProjects:         activeManaged,
 		ManagedRegistryDigest:   digest,
 		ManagedRegistryRevision: managed.Revision,
 	}, nil

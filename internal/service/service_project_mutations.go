@@ -109,6 +109,13 @@ func (s *Service) projectRegister(ctx context.Context, in ProjectRegisterInput, 
 	if err := model.ValidateProject(p); err != nil {
 		return OperationResult{}, err
 	}
+	retired, err := s.isProjectRetired(ctx, p.ID)
+	if err != nil {
+		return OperationResult{}, err
+	}
+	if retired {
+		return OperationResult{}, fmt.Errorf("project %q is retired", p.ID)
+	}
 	if !allowUnconfigured {
 		if _, err := s.projectConfig(p.ID); err != nil {
 			return OperationResult{}, err
@@ -119,6 +126,23 @@ func (s *Service) projectRegister(ctx context.Context, in ProjectRegisterInput, 
 		return OperationResult{}, err
 	}
 	tx, err := s.Hub.Transact(ctx, in.ExpectedHubRevision, "gateway: register project "+p.ID, func(w string) ([]string, error) {
+		var retirement model.ProjectRetirement
+		markerData, err := os.ReadFile(filepath.Join(w, filepath.FromSlash(s.projectRetirementPath(p.ID))))
+		if err == nil {
+			if decodeStrict(markerData, &retirement) != nil || model.ValidateProjectRetirement(retirement) != nil || retirement.ProjectID != p.ID {
+				return nil, fmt.Errorf("invalid project retirement authority")
+			}
+			return nil, fmt.Errorf("project %q is retired", p.ID)
+		} else if !os.IsNotExist(err) {
+			return nil, err
+		}
+		if s.Durability != nil {
+			if _, found, err := s.Durability.ReadSharedProjectRetirement(ctx, p.ID); err != nil {
+				return nil, err
+			} else if found {
+				return nil, fmt.Errorf("project %q is retired", p.ID)
+			}
+		}
 		projectPath := s.projectPath(p.ID)
 		if _, err := os.Stat(filepath.Join(w, filepath.FromSlash(projectPath))); err == nil {
 			return nil, fmt.Errorf("project already exists")

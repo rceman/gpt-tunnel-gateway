@@ -64,8 +64,8 @@ func (s *Service) SessionStart(ctx context.Context, input SessionStartInput) (Se
 	if input.ProjectCode != "" && input.ProjectCode != project.ProjectCode {
 		return SessionResult{}, fmt.Errorf("session project code %q does not match local project code %q", input.ProjectCode, project.ProjectCode)
 	}
-	if _, err := s.ProjectConfigurationRead(ctx, input.ProjectID); err != nil {
-		return SessionResult{}, fmt.Errorf("session project Shared configuration is unavailable: %w", err)
+	if _, err := s.projectConfigurationRead(ctx, input.ProjectID, true); err != nil {
+		return SessionResult{}, fmt.Errorf("session project Shared configuration or retirement state is unavailable: %w", err)
 	}
 	record, err := durableSession.NewStoreWithGateway(s.Durability, s.Config.GatewayID).Create(durableSession.CreateInput{ProjectID: input.ProjectID, ProjectCode: project.ProjectCode, Role: input.Role, SessionType: input.SessionType, SessionRef: input.SessionRef, Label: input.Label})
 	if err != nil {

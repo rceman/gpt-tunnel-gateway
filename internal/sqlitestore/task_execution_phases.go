@@ -36,7 +36,12 @@ func (d *Databases) AppendTaskExecutionPhase(ctx context.Context, phase TaskExec
 	if phase.CreatedAt.IsZero() {
 		return fmt.Errorf("incomplete Task execution phase")
 	}
-	_, err := d.Local.Batch(ctx, []upstream.Statement{{SQL: `INSERT INTO local_task_execution_phases(task_id,project_id,execution_revision,stage,status,head_sha,branch,task_revision_sha256,event_kind,decision,comment,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, Args: []any{phase.TaskID, phase.ProjectID, phase.ExecutionRevision, phase.Stage, phase.Status, phase.Head, phase.Branch, phase.TaskRevisionSHA256, phase.EventKind, phase.Decision, phase.Comment, phase.CreatedAt.UTC().Format(time.RFC3339Nano)}}})
+	_, err := d.Local.Batch(ctx, []upstream.Statement{{SQL: `INSERT INTO local_task_execution_phases(task_id,project_id,execution_revision,stage,status,head_sha,branch,task_revision_sha256,event_kind,decision,comment,created_at) SELECT ?,?,?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=?)`, Args: []any{phase.TaskID, phase.ProjectID, phase.ExecutionRevision, phase.Stage, phase.Status, phase.Head, phase.Branch, phase.TaskRevisionSHA256, phase.EventKind, phase.Decision, phase.Comment, phase.CreatedAt.UTC().Format(time.RFC3339Nano), phase.ProjectID}, RequireRowsAffected: 1}})
+	if err != nil {
+		if retired, readErr := d.IsLocalProjectRetired(ctx, phase.ProjectID); readErr == nil && retired {
+			return ErrLocalProjectRetired
+		}
+	}
 	return err
 }
 
@@ -44,7 +49,7 @@ func (d *Databases) ReadLatestTaskExecutionPhase(ctx context.Context, projectID,
 	if d == nil || d.Local == nil {
 		return TaskExecutionPhase{}, false, fmt.Errorf("local store is unavailable")
 	}
-	rows, err := d.Local.Query(ctx, `SELECT id,task_id,project_id,execution_revision,stage,status,head_sha,branch,task_revision_sha256,event_kind,COALESCE(decision,''),COALESCE(comment,''),created_at FROM local_task_execution_phases WHERE project_id=? AND task_id=? AND stage=? ORDER BY id DESC LIMIT 1`, projectID, taskID, stage)
+	rows, err := d.Local.Query(ctx, `SELECT id,task_id,project_id,execution_revision,stage,status,head_sha,branch,task_revision_sha256,event_kind,COALESCE(decision,''),COALESCE(comment,''),created_at FROM local_task_execution_phases WHERE project_id=? AND task_id=? AND stage=? AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=local_task_execution_phases.project_id) ORDER BY id DESC LIMIT 1`, projectID, taskID, stage)
 	if err != nil {
 		return TaskExecutionPhase{}, false, err
 	}
@@ -116,7 +121,7 @@ func (d *Databases) readTaskExecutionPhaseAcrossStages(ctx context.Context, proj
 	if d == nil || d.Local == nil {
 		return TaskExecutionPhase{}, false, fmt.Errorf("local store is unavailable")
 	}
-	rows, err := d.Local.Query(ctx, `SELECT id,task_id,project_id,execution_revision,stage,status,head_sha,branch,task_revision_sha256,event_kind,COALESCE(decision,''),COALESCE(comment,''),created_at FROM local_task_execution_phases WHERE project_id=? AND task_id=? AND `+predicate+` ORDER BY id DESC LIMIT 1`, projectID, taskID)
+	rows, err := d.Local.Query(ctx, `SELECT id,task_id,project_id,execution_revision,stage,status,head_sha,branch,task_revision_sha256,event_kind,COALESCE(decision,''),COALESCE(comment,''),created_at FROM local_task_execution_phases WHERE project_id=? AND task_id=? AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=local_task_execution_phases.project_id) AND `+predicate+` ORDER BY id DESC LIMIT 1`, projectID, taskID)
 	if err != nil {
 		return TaskExecutionPhase{}, false, err
 	}
@@ -131,7 +136,7 @@ func (d *Databases) readTaskExecutionPhaseAcrossStages(ctx context.Context, proj
 }
 
 func (d *Databases) readTaskExecutionPhaseWhere(ctx context.Context, projectID, taskID, stage, predicate string) (TaskExecutionPhase, bool, error) {
-	rows, err := d.Local.Query(ctx, `SELECT id,task_id,project_id,execution_revision,stage,status,head_sha,branch,task_revision_sha256,event_kind,COALESCE(decision,''),COALESCE(comment,''),created_at FROM local_task_execution_phases WHERE project_id=? AND task_id=? AND stage=? AND `+predicate+` ORDER BY id DESC LIMIT 1`, projectID, taskID, stage)
+	rows, err := d.Local.Query(ctx, `SELECT id,task_id,project_id,execution_revision,stage,status,head_sha,branch,task_revision_sha256,event_kind,COALESCE(decision,''),COALESCE(comment,''),created_at FROM local_task_execution_phases WHERE project_id=? AND task_id=? AND stage=? AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=local_task_execution_phases.project_id) AND `+predicate+` ORDER BY id DESC LIMIT 1`, projectID, taskID, stage)
 	if err != nil {
 		return TaskExecutionPhase{}, false, err
 	}
@@ -191,7 +196,7 @@ func (d *Databases) ReadTaskExecutionPhases(ctx context.Context, projectID, task
 	if d == nil || d.Local == nil {
 		return nil, fmt.Errorf("local store is unavailable")
 	}
-	rows, err := d.Local.Query(ctx, `SELECT id,task_id,project_id,execution_revision,stage,status,head_sha,branch,task_revision_sha256,event_kind,COALESCE(decision,''),COALESCE(comment,''),created_at FROM local_task_execution_phases WHERE project_id=? AND task_id=? AND stage=? ORDER BY id ASC LIMIT ?`, projectID, taskID, stage, taskExecutionPhaseHistoryBound+1)
+	rows, err := d.Local.Query(ctx, `SELECT id,task_id,project_id,execution_revision,stage,status,head_sha,branch,task_revision_sha256,event_kind,COALESCE(decision,''),COALESCE(comment,''),created_at FROM local_task_execution_phases WHERE project_id=? AND task_id=? AND stage=? AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=local_task_execution_phases.project_id) ORDER BY id ASC LIMIT ?`, projectID, taskID, stage, taskExecutionPhaseHistoryBound+1)
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +256,7 @@ func (d *Databases) UpdateTaskExecutionState(ctx context.Context, state model.Ta
 	if err := model.ValidateTaskExecutionState(state); err != nil {
 		return err
 	}
-	_, err := d.Local.Batch(ctx, []upstream.Statement{{SQL: `UPDATE local_task_execution_states SET task_revision=?,task_revision_sha256=?,status=?,stage=?,worktree=?,base_head_sha=?,head_sha=?,branch=?,agent=?,execution_revision=?,updated_at=? WHERE project_id=? AND task_id=? AND execution_revision=?`, Args: []any{state.TaskRevision, state.TaskRevisionSHA256, state.Status, state.Stage, state.Worktree, state.BaseHead, state.Head, state.Branch, state.Agent, state.ExecutionRevision, state.UpdatedAt.UTC().Format(time.RFC3339Nano), state.ProjectID, state.TaskID, expectedRevision}, RequireRowsAffected: 1}})
+	_, err := d.Local.Batch(ctx, []upstream.Statement{{SQL: `UPDATE local_task_execution_states SET task_revision=?,task_revision_sha256=?,status=?,stage=?,worktree=?,base_head_sha=?,head_sha=?,branch=?,agent=?,execution_revision=?,updated_at=? WHERE project_id=? AND task_id=? AND execution_revision=? AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=?)`, Args: []any{state.TaskRevision, state.TaskRevisionSHA256, state.Status, state.Stage, state.Worktree, state.BaseHead, state.Head, state.Branch, state.Agent, state.ExecutionRevision, state.UpdatedAt.UTC().Format(time.RFC3339Nano), state.ProjectID, state.TaskID, expectedRevision, state.ProjectID}, RequireRowsAffected: 1}})
 	return err
 }
 
@@ -269,8 +274,8 @@ func (d *Databases) TransitionTaskExecutionState(ctx context.Context, state mode
 		return err
 	}
 	_, err := d.Local.Batch(ctx, []upstream.Statement{
-		{SQL: `UPDATE local_task_execution_states SET task_revision=?,task_revision_sha256=?,status=?,stage=?,worktree=?,base_head_sha=?,head_sha=?,branch=?,agent=?,execution_revision=?,updated_at=? WHERE project_id=? AND task_id=? AND execution_revision=?`, Args: []any{state.TaskRevision, state.TaskRevisionSHA256, state.Status, state.Stage, state.Worktree, state.BaseHead, state.Head, state.Branch, state.Agent, state.ExecutionRevision, state.UpdatedAt.UTC().Format(time.RFC3339Nano), state.ProjectID, state.TaskID, expectedRevision}, RequireRowsAffected: 1},
-		{SQL: `INSERT INTO local_task_execution_phases(task_id,project_id,execution_revision,stage,status,head_sha,branch,task_revision_sha256,event_kind,decision,comment,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, Args: []any{phase.TaskID, phase.ProjectID, phase.ExecutionRevision, phase.Stage, phase.Status, phase.Head, phase.Branch, phase.TaskRevisionSHA256, phase.EventKind, phase.Decision, phase.Comment, phase.CreatedAt.UTC().Format(time.RFC3339Nano)}, RequireRowsAffected: 1},
+		{SQL: `UPDATE local_task_execution_states SET task_revision=?,task_revision_sha256=?,status=?,stage=?,worktree=?,base_head_sha=?,head_sha=?,branch=?,agent=?,execution_revision=?,updated_at=? WHERE project_id=? AND task_id=? AND execution_revision=? AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=?)`, Args: []any{state.TaskRevision, state.TaskRevisionSHA256, state.Status, state.Stage, state.Worktree, state.BaseHead, state.Head, state.Branch, state.Agent, state.ExecutionRevision, state.UpdatedAt.UTC().Format(time.RFC3339Nano), state.ProjectID, state.TaskID, expectedRevision, state.ProjectID}, RequireRowsAffected: 1},
+		{SQL: `INSERT INTO local_task_execution_phases(task_id,project_id,execution_revision,stage,status,head_sha,branch,task_revision_sha256,event_kind,decision,comment,created_at) SELECT ?,?,?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=?)`, Args: []any{phase.TaskID, phase.ProjectID, phase.ExecutionRevision, phase.Stage, phase.Status, phase.Head, phase.Branch, phase.TaskRevisionSHA256, phase.EventKind, phase.Decision, phase.Comment, phase.CreatedAt.UTC().Format(time.RFC3339Nano), phase.ProjectID}, RequireRowsAffected: 1},
 	})
 	return err
 }

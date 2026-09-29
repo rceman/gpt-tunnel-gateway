@@ -35,6 +35,16 @@ func (d *Databases) ReconcileProjectBootstrap(ctx context.Context, in ProjectBoo
 	if err := model.ValidateProjectIdentifier(in.ProjectID); err != nil {
 		return err
 	}
+	if retired, err := d.IsLocalProjectRetired(ctx, in.ProjectID); err != nil {
+		return err
+	} else if retired {
+		return ErrLocalProjectRetired
+	}
+	if _, found, err := d.ReadSharedProjectRetirement(ctx, in.ProjectID); err != nil {
+		return err
+	} else if found {
+		return ErrProjectRetirementConflict
+	}
 	if err := model.ValidateProjectCode(in.PreviousProjectCode); err != nil {
 		return fmt.Errorf("previous project code: %w", err)
 	}
@@ -134,6 +144,11 @@ func (d *Databases) ReadSharedProjectIdentifiers(ctx context.Context, projectID 
 	}
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return model.ProjectIdentifiers{}, err
+	}
+	if _, found, err := d.ReadSharedProjectRetirement(ctx, projectID); err != nil {
+		return model.ProjectIdentifiers{}, err
+	} else if found {
+		return model.ProjectIdentifiers{}, ErrProjectRetirementConflict
 	}
 	rows, err := d.Shared.Query(ctx, `SELECT project_code FROM shared_project_identifiers WHERE project_id=?`, projectID)
 	if err != nil {

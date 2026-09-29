@@ -302,6 +302,19 @@ func (s *Service) restoreHubCanonicalSequences(ctx context.Context, snapshot *hu
 }
 
 func (s *Service) restoreHubProjectSemantics(ctx context.Context, projectID, projectCode string) error {
+	retired, err := s.isProjectRetired(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if !retired {
+		_, retired, err = s.readHubProjectRetirement(ctx, projectID)
+		if err != nil {
+			return err
+		}
+	}
+	if retired {
+		return nil
+	}
 	if s.Durability == nil {
 		return fmt.Errorf("Shared durability is required for portable restore")
 	}

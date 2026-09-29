@@ -172,6 +172,59 @@ func (s *Server) registerDebugActions() error {
 	}); err != nil {
 		return err
 	}
+	if err := s.RegisterGenericAction(GenericAction{
+		Path:         "debug/project-retire",
+		Description:  "Retire one exact project through the bounded gatewayd migration transition.",
+		InputSchema:  debugProjectRetireInputSchema(),
+		OutputSchema: debugProjectRetireOutputSchema(),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  true,
+		},
+		AuthorityRole:    actionRolePlannerOrLead,
+		LocalReceiptOnly: true,
+		SessionBound:     true,
+		SessionRequired:  true,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in struct {
+				ProjectID string `json:"project_id"`
+				Reason    string `json:"reason"`
+			}
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			return s.Service.DebugRetireProject(ctx, in.ProjectID, in.Reason)
+		},
+	}); err != nil {
+		return err
+	}
+	if err := s.RegisterGenericAction(GenericAction{
+		Path:        "debug/project-configuration-migrate",
+		Description: "Run the deferred ProjectConfiguration v2-to-v3 migration after explicit retirements.",
+		InputSchema: debugStatusInputSchema(),
+		OutputSchema: closedOutput(map[string]any{
+			"status": outputEnum("complete"),
+		}, "status"),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  true,
+		},
+		AuthorityRole:    actionRolePlannerOrLead,
+		LocalReceiptOnly: true,
+		SessionBound:     true,
+		SessionRequired:  true,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			if _, err := decodeDebugEmptyInput(raw); err != nil {
+				return nil, err
+			}
+			if err := s.Service.DebugMigrateProjectConfigurations(ctx); err != nil {
+				return nil, err
+			}
+			return map[string]any{"status": "complete"}, nil
+		},
+	}); err != nil {
+		return err
+	}
 	return s.RegisterGenericAction(GenericAction{
 		Path:         "debug/activate",
 		Description:  "Activate one exact clean main source revision through the Gateway-only recovery pipeline.",
@@ -300,6 +353,14 @@ func debugAwaitInputSchema() map[string]any {
 	}, "agent_ref", "seconds")
 }
 
+func debugProjectRetireInputSchema() map[string]any {
+	key := str("Exact project identifier to retire.")
+	key["minLength"], key["maxLength"], key["pattern"] = 1, 64, `^[a-z0-9][a-z0-9_-]{0,63}$`
+	reason := str("Bounded reason recorded as portable retirement evidence.")
+	reason["minLength"], reason["maxLength"] = 1, 512
+	return obj(map[string]any{"key": key, "reason": reason}, "key", "reason")
+}
+
 func debugTailOutputSchema() map[string]any {
 	line := outputString()
 	line["maxLength"] = airelay.MaxTransportMessageBytes
@@ -325,6 +386,16 @@ func debugAwaitOutputSchema() map[string]any {
 		"lines":                lines,
 		"exit_code":            integer("Direct Agent exit code.", -1, 1<<31-1),
 	}, "status", "agent_ref", "controller_reachable", "lines", "exit_code")
+}
+
+func debugProjectRetireOutputSchema() map[string]any {
+	return closedOutput(map[string]any{
+		"key":                           outputString(),
+		"status":                        outputEnum("retired"),
+		"configuration_revision":        integer("Retired configuration revision.", 0, 1<<53-1),
+		"cancelled_config_publications": integer("Cancelled pending configuration publications.", 0, 4096),
+		"already_retired":               outputBoolean(),
+	}, "key", "status", "configuration_revision", "cancelled_config_publications", "already_retired")
 }
 
 func (s *Server) debugAwaitAction(ctx context.Context, raw json.RawMessage) (any, error) {

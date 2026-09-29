@@ -36,7 +36,24 @@ func (d *Databases) ArmCallbackEpoch(ctx context.Context, epoch CallbackEpoch) e
 	if epoch.ID == "" || epoch.ProjectID == "" || epoch.SessionKey == "" || epoch.ArmedAt.IsZero() {
 		return fmt.Errorf("Agent-work epoch identity is incomplete")
 	}
-	_, err := d.Local.Exec(ctx, `INSERT OR IGNORE INTO local_callback_epochs(epoch_id,project_id,agent_id,session_key,armed_at,session_id) VALUES(?,?,?,?,?,?)`, epoch.ID, epoch.ProjectID, epoch.AgentID, epoch.SessionKey, epoch.ArmedAt.UTC().Format(time.RFC3339Nano), epoch.SessionID)
+	retired, err := d.IsLocalProjectRetired(ctx, epoch.ProjectID)
+	if err != nil {
+		return err
+	}
+	if retired {
+		return ErrLocalProjectRetired
+	}
+	_, err = d.Local.Batch(ctx, []upstream.Statement{{SQL: `INSERT OR IGNORE INTO local_callback_epochs(epoch_id,project_id,agent_id,session_key,armed_at,session_id) SELECT ?,?,?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=?)`, Args: []any{epoch.ID, epoch.ProjectID, epoch.AgentID, epoch.SessionKey, epoch.ArmedAt.UTC().Format(time.RFC3339Nano), epoch.SessionID, epoch.ProjectID}, RequireRowsAffected: 1}})
+	if err == nil {
+		return nil
+	}
+	if retired, readErr := d.IsLocalProjectRetired(ctx, epoch.ProjectID); readErr == nil && retired {
+		return ErrLocalProjectRetired
+	}
+	existing, readErr := d.ReadCallbackEpoch(ctx, epoch.ID)
+	if readErr == nil && existing.ProjectID == epoch.ProjectID && existing.AgentID == epoch.AgentID && existing.SessionID == epoch.SessionID && existing.SessionKey == epoch.SessionKey && existing.ArmedAt.Equal(epoch.ArmedAt) {
+		return nil
+	}
 	return err
 }
 
@@ -47,7 +64,7 @@ func (d *Databases) PendingCallbackEpochs(ctx context.Context, limit int) ([]Cal
 	if limit < 1 || limit > 256 {
 		return nil, fmt.Errorf("invalid Agent-work epoch limit")
 	}
-	rows, err := d.Local.Query(ctx, `SELECT epoch_id,project_id,agent_id,session_key,armed_at,busy_seen,idle_observations,session_id FROM local_callback_epochs WHERE emitted_at IS NULL ORDER BY armed_at,epoch_id LIMIT ?`, limit)
+	rows, err := d.Local.Query(ctx, `SELECT epoch_id,project_id,agent_id,session_key,armed_at,busy_seen,idle_observations,session_id FROM local_callback_epochs WHERE emitted_at IS NULL AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=local_callback_epochs.project_id) ORDER BY armed_at,epoch_id LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -93,6 +110,15 @@ func (d *Databases) ObserveCallbackEpoch(ctx context.Context, epochID, state str
 	if epochID == "" {
 		return false, fmt.Errorf("Agent-work epoch ID is required")
 	}
+	epoch, err := d.ReadCallbackEpoch(ctx, epochID)
+	if err != nil {
+		return false, err
+	}
+	if retired, err := d.IsLocalProjectRetired(ctx, epoch.ProjectID); err != nil {
+		return false, err
+	} else if retired {
+		return false, ErrLocalProjectRetired
+	}
 	rows, err := d.Local.Query(ctx, `SELECT busy_seen,idle_observations,emitted_at FROM local_callback_epochs WHERE epoch_id=?`, epochID)
 	if err != nil {
 		return false, err
@@ -121,18 +147,36 @@ func (d *Databases) ObserveCallbackEpoch(ctx context.Context, epochID, state str
 	}
 	switch state {
 	case "running", "waiting":
-		_, err = d.Local.Exec(ctx, `UPDATE local_callback_epochs SET busy_seen=1,idle_observations=0 WHERE epoch_id=? AND emitted_at IS NULL`, epochID)
-		return false, err
+		result, err := d.Local.Exec(ctx, `UPDATE local_callback_epochs SET busy_seen=1,idle_observations=0 WHERE epoch_id=? AND emitted_at IS NULL AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=local_callback_epochs.project_id)`, epochID)
+		if err != nil {
+			return false, err
+		}
+		if result.RowsAffected != 1 {
+			return false, ErrCallbackEpochClaimed
+		}
+		return false, nil
 	case "idle":
 		if busySeen == 0 {
 			return false, nil
 		}
 		next := idleObservations + 1
-		_, err = d.Local.Exec(ctx, `UPDATE local_callback_epochs SET idle_observations=? WHERE epoch_id=? AND emitted_at IS NULL`, next, epochID)
-		return next >= 2, err
+		result, err := d.Local.Exec(ctx, `UPDATE local_callback_epochs SET idle_observations=? WHERE epoch_id=? AND emitted_at IS NULL AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=local_callback_epochs.project_id)`, next, epochID)
+		if err != nil {
+			return false, err
+		}
+		if result.RowsAffected != 1 {
+			return false, ErrCallbackEpochClaimed
+		}
+		return next >= 2, nil
 	default:
-		_, err = d.Local.Exec(ctx, `UPDATE local_callback_epochs SET idle_observations=0 WHERE epoch_id=? AND emitted_at IS NULL`, epochID)
-		return false, err
+		result, err := d.Local.Exec(ctx, `UPDATE local_callback_epochs SET idle_observations=0 WHERE epoch_id=? AND emitted_at IS NULL AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=local_callback_epochs.project_id)`, epochID)
+		if err != nil {
+			return false, err
+		}
+		if result.RowsAffected != 1 {
+			return false, ErrCallbackEpochClaimed
+		}
+		return false, nil
 	}
 }
 
@@ -159,14 +203,22 @@ func (d *Databases) AllocateCallbackEpochOperation(ctx context.Context, epochID,
 	if err := validateAdmissionCoordinate(sessionID, inputSHA256); err != nil {
 		return LocalOperation{}, false, err
 	}
+	if retired, err := d.IsLocalProjectRetired(ctx, projectID); err != nil {
+		return LocalOperation{}, false, err
+	} else if retired {
+		return LocalOperation{}, false, ErrLocalProjectRetired
+	}
 	at := now.UTC().Format(time.RFC3339Nano)
 	_, err := d.Local.Batch(ctx, []upstream.Statement{
 		{SQL: `INSERT OR IGNORE INTO local_operation_sequences(project_id,project_code,next_number) VALUES(?,?,1)`, Args: []any{projectID, projectCode}},
-		{SQL: `UPDATE local_callback_epochs SET emitted_at=?,operation_id=(SELECT project_code || '-OPR' || CAST(next_number AS TEXT) FROM local_operation_sequences WHERE project_id=? AND project_code=?),hook_outcome='pending' WHERE epoch_id=? AND project_id=? AND session_id=? AND emitted_at IS NULL AND operation_id IS NULL`, Args: []any{at, projectID, projectCode, epochID, projectID, sessionID}, RequireRowsAffected: 1},
-		{SQL: `INSERT INTO local_operations(operation_id,project_id,project_code,operation_number,mutation_id,kind,status,result_payload,error,recovery_reason,created_at,updated_at,admission_session_id,admission_input_sha256) SELECT e.operation_id,e.project_id,?,s.next_number,?,?,?,NULL,'','',?,?,?,? FROM local_callback_epochs e JOIN local_operation_sequences s ON s.project_id=e.project_id AND s.project_code=? WHERE e.epoch_id=? AND e.project_id=? AND e.hook_outcome='pending' AND e.operation_id IS NOT NULL`, Args: []any{projectCode, mutationID, kind, "accepted", at, at, sessionID, inputSHA256, projectCode, epochID, projectID}, RequireRowsAffected: 1},
-		{SQL: `UPDATE local_operation_sequences SET next_number=next_number+1 WHERE project_id=? AND project_code=? AND EXISTS(SELECT 1 FROM local_callback_epochs WHERE epoch_id=? AND project_id=? AND hook_outcome='pending' AND operation_id IS NOT NULL)`, Args: []any{projectID, projectCode, epochID, projectID}, RequireRowsAffected: 1},
+		{SQL: `UPDATE local_callback_epochs SET emitted_at=?,operation_id=(SELECT project_code || '-OPR' || CAST(next_number AS TEXT) FROM local_operation_sequences WHERE project_id=? AND project_code=?),hook_outcome='pending' WHERE epoch_id=? AND project_id=? AND session_id=? AND emitted_at IS NULL AND operation_id IS NULL AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=?)`, Args: []any{at, projectID, projectCode, epochID, projectID, sessionID, projectID}, RequireRowsAffected: 1},
+		{SQL: `INSERT INTO local_operations(operation_id,project_id,project_code,operation_number,mutation_id,kind,status,result_payload,error,recovery_reason,created_at,updated_at,admission_session_id,admission_input_sha256) SELECT e.operation_id,e.project_id,?,s.next_number,?,?,?,NULL,'','',?,?,?,? FROM local_callback_epochs e JOIN local_operation_sequences s ON s.project_id=e.project_id AND s.project_code=? WHERE e.epoch_id=? AND e.project_id=? AND e.hook_outcome='pending' AND e.operation_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=?)`, Args: []any{projectCode, mutationID, kind, "accepted", at, at, sessionID, inputSHA256, projectCode, epochID, projectID, projectID}, RequireRowsAffected: 1},
+		{SQL: `UPDATE local_operation_sequences SET next_number=next_number+1 WHERE project_id=? AND project_code=? AND EXISTS(SELECT 1 FROM local_callback_epochs WHERE epoch_id=? AND project_id=? AND hook_outcome='pending' AND operation_id IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=?)`, Args: []any{projectID, projectCode, epochID, projectID, projectID}, RequireRowsAffected: 1},
 	})
 	if err != nil {
+		if retired, readErr := d.IsLocalProjectRetired(ctx, projectID); readErr == nil && retired {
+			return LocalOperation{}, false, ErrLocalProjectRetired
+		}
 		if epoch, readErr := d.ReadCallbackEpoch(ctx, epochID); readErr == nil && epoch.OperationID != "" {
 			if operation, opErr := d.ReadLocalOperation(ctx, epoch.OperationID); opErr == nil && operation.ProjectID == projectID && operation.Kind == kind {
 				return operation, false, nil
@@ -185,7 +237,16 @@ func (d *Databases) ClaimCallbackEpochWithoutHook(ctx context.Context, epochID s
 	if d == nil || d.Local == nil || epochID == "" || claimedAt.IsZero() {
 		return false, fmt.Errorf("agent work epoch claim is incomplete")
 	}
-	result, err := d.Local.Exec(ctx, `UPDATE local_callback_epochs SET emitted_at=?,hook_outcome='unbound',hook_completed_at=? WHERE epoch_id=? AND emitted_at IS NULL AND operation_id IS NULL`, claimedAt.UTC().Format(time.RFC3339Nano), claimedAt.UTC().Format(time.RFC3339Nano), epochID)
+	epoch, err := d.ReadCallbackEpoch(ctx, epochID)
+	if err != nil {
+		return false, err
+	}
+	if retired, err := d.IsLocalProjectRetired(ctx, epoch.ProjectID); err != nil {
+		return false, err
+	} else if retired {
+		return false, ErrLocalProjectRetired
+	}
+	result, err := d.Local.Exec(ctx, `UPDATE local_callback_epochs SET emitted_at=?,hook_outcome='unbound',hook_completed_at=? WHERE epoch_id=? AND emitted_at IS NULL AND operation_id IS NULL AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=local_callback_epochs.project_id)`, claimedAt.UTC().Format(time.RFC3339Nano), claimedAt.UTC().Format(time.RFC3339Nano), epochID)
 	if err != nil {
 		return false, err
 	}
@@ -196,7 +257,7 @@ func (d *Databases) ReadCallbackEpoch(ctx context.Context, epochID string) (Call
 	if d == nil || d.Local == nil || epochID == "" {
 		return CallbackEpoch{}, fmt.Errorf("agent work epoch identity is required")
 	}
-	rows, err := d.Local.Query(ctx, `SELECT epoch_id,project_id,agent_id,session_id,session_key,armed_at,busy_seen,idle_observations,emitted_at,operation_id,hook_outcome,hook_completed_at FROM local_callback_epochs WHERE epoch_id=?`, epochID)
+	rows, err := d.Local.Query(ctx, `SELECT epoch_id,project_id,agent_id,session_id,session_key,armed_at,busy_seen,idle_observations,emitted_at,operation_id,hook_outcome,hook_completed_at FROM local_callback_epochs WHERE epoch_id=? AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=local_callback_epochs.project_id)`, epochID)
 	if err != nil {
 		return CallbackEpoch{}, err
 	}
@@ -286,11 +347,26 @@ func (d *Databases) RecordCallbackEpochOperationOutcome(ctx context.Context, epo
 	if d == nil || d.Local == nil || epochID == "" || model.ValidateOperationID(operationID) != nil || outcome != "completed" && outcome != "failed" && outcome != "outcome_unknown" || completedAt.IsZero() {
 		return fmt.Errorf("invalid Agent-work Hook outcome")
 	}
-	result, err := d.Local.Exec(ctx, `UPDATE local_callback_epochs SET hook_outcome=?,hook_completed_at=? WHERE epoch_id=? AND operation_id=? AND emitted_at IS NOT NULL`, outcome, completedAt.UTC().Format(time.RFC3339Nano), epochID, operationID)
+	epoch, err := d.ReadCallbackEpoch(ctx, epochID)
+	if err != nil {
+		return err
+	}
+	if epoch.OperationID != operationID {
+		return fmt.Errorf("Agent-work Hook Operation association does not match")
+	}
+	if retired, err := d.IsLocalProjectRetired(ctx, epoch.ProjectID); err != nil {
+		return err
+	} else if retired {
+		return ErrLocalProjectRetired
+	}
+	result, err := d.Local.Exec(ctx, `UPDATE local_callback_epochs SET hook_outcome=?,hook_completed_at=? WHERE epoch_id=? AND operation_id=? AND emitted_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=local_callback_epochs.project_id)`, outcome, completedAt.UTC().Format(time.RFC3339Nano), epochID, operationID)
 	if err != nil {
 		return err
 	}
 	if result.RowsAffected != 1 {
+		if retired, readErr := d.IsLocalProjectRetired(ctx, epoch.ProjectID); readErr == nil && retired {
+			return ErrLocalProjectRetired
+		}
 		return fmt.Errorf("Agent-work Hook Operation association does not match")
 	}
 	return nil
@@ -300,7 +376,7 @@ func (d *Databases) LatestAgentWorkFinishedHook(ctx context.Context, projectID, 
 	if d == nil || d.Local == nil || model.ValidateProjectIdentifier(projectID) != nil || agentID == "" {
 		return AgentWorkFinishedHookState{}, false, fmt.Errorf("invalid Agent-work Hook status selector")
 	}
-	rows, err := d.Local.Query(ctx, `SELECT epoch_id,project_id,agent_id,operation_id,hook_outcome FROM local_callback_epochs WHERE project_id=? AND agent_id=? AND operation_id IS NOT NULL ORDER BY armed_at DESC,epoch_id DESC LIMIT 1`, projectID, agentID)
+	rows, err := d.Local.Query(ctx, `SELECT epoch_id,project_id,agent_id,operation_id,hook_outcome FROM local_callback_epochs WHERE project_id=? AND agent_id=? AND operation_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=local_callback_epochs.project_id) ORDER BY armed_at DESC,epoch_id DESC LIMIT 1`, projectID, agentID)
 	if err != nil {
 		return AgentWorkFinishedHookState{}, false, err
 	}

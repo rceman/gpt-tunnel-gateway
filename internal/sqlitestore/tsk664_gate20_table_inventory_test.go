@@ -27,6 +27,7 @@ func TestTSK664Gate20SharedAndLocalTablesAreClassified(t *testing.T) {
 		"shared_integration_receipts":   "KEEP",
 		"shared_bootstrap_markers":      "LOCAL_ONLY",
 		"shared_project_configurations": "KEEP",
+		"shared_project_retirements":    "KEEP",
 		"shared_entity_sequences":       "KEEP",
 		"shared_entity_revisions":       "KEEP",
 		"shared_lifecycle_events":       "KEEP",
@@ -59,6 +60,7 @@ func TestTSK664Gate20SharedAndLocalTablesAreClassified(t *testing.T) {
 		"local_task_execution_states":        "LOCAL_ONLY",
 		"local_task_execution_phases":        "LOCAL_ONLY",
 		"local_task_execution_verifications": "LOCAL_ONLY",
+		"local_project_retirements":          "LOCAL_ONLY",
 		"schema_migrations":                  "LOCAL_ONLY",
 	}
 

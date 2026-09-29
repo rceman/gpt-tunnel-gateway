@@ -140,6 +140,9 @@ func (s *Server) genericDispatch(ctx context.Context, entries map[string]generic
 	return genericActionSuccessWithPagination(publicResult, continuation), nil
 }
 func genericProjectionScope(record durableSession.Record, raw json.RawMessage, action string) string {
+	if action == "debug/project-retire" || action == "debug/project-configuration-migrate" {
+		return ""
+	}
 	if action == "debug/status" || action == "debug/runtime" || action == "debug/activate" {
 		return gatewaySourceProjectID
 	}

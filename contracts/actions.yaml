@@ -1389,6 +1389,84 @@ domains:
                 - agent_ref
                 - exit_code
             type: object
+        - description: Run the deferred ProjectConfiguration v2-to-v3 migration after explicit retirements.
+          input:
+            additional_properties: false
+            properties: {}
+            type: object
+          metadata:
+            annotations:
+                destructive: true
+                idempotent: true
+                open_world: false
+                read_only: false
+            selector: none
+            surface: debug
+          name: project-configuration-migrate
+          output:
+            additional_properties: false
+            properties:
+                status:
+                    enum:
+                        - complete
+                    type: string
+            required:
+                - status
+            type: object
+        - description: Retire one exact project through the bounded gatewayd migration transition.
+          input:
+            additional_properties: false
+            properties:
+                key:
+                    ref: EntityKeyAndReference
+                reason:
+                    ref: MutationReason
+            required:
+                - key
+                - reason
+            type: object
+          metadata:
+            annotations:
+                destructive: true
+                idempotent: true
+                open_world: false
+                read_only: false
+            handler_input:
+                - from: key
+                  to: project_id
+            handler_output:
+                - from: project_id
+                  to: key
+            selector: key
+            surface: debug
+          name: project-retire
+          output:
+            additional_properties: false
+            properties:
+                already_retired:
+                    type: boolean
+                cancelled_config_publications:
+                    description: Cancelled pending configuration publications.
+                    maximum: 4096
+                    minimum: 0
+                    type: integer
+                configuration_revision:
+                    maximum: 9007199254740991
+                    minimum: 0
+                    type: integer
+                key:
+                    ref: EntityKeyAndReference
+                status:
+                    enum:
+                        - retired
+                    type: string
+            required:
+                - key
+                - status
+                - configuration_revision
+                - cancelled_config_publications
+                - already_retired
+            type: object
         - description: Read bounded host-local source and recovery status.
           input:
             additional_properties: false

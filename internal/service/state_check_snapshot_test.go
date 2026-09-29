@@ -9,8 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/lockfile"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
+	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
@@ -84,5 +86,12 @@ func TestStateCheckUsesLocalSQLiteWhenHubUnavailableAndLocked(t *testing.T) {
 	}
 	if !result.Valid || len(result.Issues) != 0 {
 		t.Fatalf("local StateCheck failed with Hub unavailable/locked: %#v", result)
+	}
+	if _, err := s.SessionStart(authority.WithPlanner(context.Background()), SessionStartInput{
+		ProjectID:   "example",
+		Role:        durableSession.RolePlanner,
+		SessionType: durableSession.SessionTypeChatGPT,
+	}); err == nil {
+		t.Fatal("Session admission succeeded without checking Hub retirement state")
 	}
 }

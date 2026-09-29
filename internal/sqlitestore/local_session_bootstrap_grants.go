@@ -32,6 +32,13 @@ func (d *Databases) EnsureSessionBootstrapGrant(ctx context.Context, input Sessi
 	if err := validateSessionBootstrapGrantMetadata(input); err != nil {
 		return SessionBootstrapGrant{}, err
 	}
+	retired, err := d.IsLocalProjectRetired(ctx, input.ProjectID)
+	if err != nil {
+		return SessionBootstrapGrant{}, err
+	}
+	if retired {
+		return SessionBootstrapGrant{}, ErrLocalProjectRetired
+	}
 	if input.Token != "" {
 		if err := validateSessionBootstrapToken(input.Token); err != nil {
 			return SessionBootstrapGrant{}, err
@@ -59,9 +66,16 @@ func (d *Databases) EnsureSessionBootstrapGrant(ctx context.Context, input Sessi
 	if input.UpdatedAt.IsZero() {
 		input.UpdatedAt = input.CreatedAt
 	}
-	_, err = d.Local.Exec(ctx, `INSERT INTO local_session_bootstrap_grants(project_id,project_code,gateway_id,role,agent_id,token,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(project_id) DO NOTHING`, input.ProjectID, input.ProjectCode, input.GatewayID, input.Role, input.AgentID, input.Token, formatBootstrapGrantTime(input.CreatedAt), formatBootstrapGrantTime(input.UpdatedAt))
+	_, err = d.Local.Exec(ctx, `INSERT INTO local_session_bootstrap_grants(project_id,project_code,gateway_id,role,agent_id,token,created_at,updated_at) SELECT ?,?,?,?,?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=?) ON CONFLICT(project_id) DO NOTHING`, input.ProjectID, input.ProjectCode, input.GatewayID, input.Role, input.AgentID, input.Token, formatBootstrapGrantTime(input.CreatedAt), formatBootstrapGrantTime(input.UpdatedAt), input.ProjectID)
 	if err != nil {
 		return SessionBootstrapGrant{}, err
+	}
+	retired, err = d.IsLocalProjectRetired(ctx, input.ProjectID)
+	if err != nil {
+		return SessionBootstrapGrant{}, err
+	}
+	if retired {
+		return SessionBootstrapGrant{}, ErrLocalProjectRetired
 	}
 	stored, err := d.ReadSessionBootstrapGrant(ctx, input.ProjectID)
 	if err != nil {

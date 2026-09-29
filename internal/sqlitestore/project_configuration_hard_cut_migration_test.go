@@ -65,6 +65,9 @@ func TestTSK666Gate20SharedConfigurationOutboxRevisionMigration(t *testing.T) {
 	if _, err := db.Shared.Exec(ctx, `INSERT INTO hub_outbox(id,entity_type,entity_id,project_id,revision,kind,payload,created_at) VALUES(?,?,?,?,?,?,?,?)`, "config-migration-outbox-2", "project_configuration", secondConfiguration.ProjectID, secondConfiguration.ProjectID, secondConfiguration.Revision, "project-configuration-update", secondRetired, secondNow); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Shared.Exec(ctx, `INSERT INTO hub_outbox(id,entity_type,entity_id,project_id,revision,kind,payload,created_at,published_at) VALUES(?,?,?,?,?,?,?,?,?)`, "config-migration-published", "project_configuration", secondConfiguration.ProjectID, secondConfiguration.ProjectID, 1, "project-configuration-update", []byte(`not-json`), secondNow, secondNow); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Shared.Exec(ctx, `INSERT INTO shared_entity_revisions(entity_type,entity_id,project_id,revision,mutation_kind,actor,reason,changed_fields,payload,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, "project_configuration", configuration.ProjectID, configuration.ProjectID, configuration.Revision, "update", "planner", "initial", []byte(`[]`), currentRetired, now); err != nil {
 		t.Fatal(err)
 	}
@@ -100,6 +103,14 @@ func TestTSK666Gate20SharedConfigurationOutboxRevisionMigration(t *testing.T) {
 		if got.GuideBindings == nil || got.Procedures == nil || got.Hooks == nil || got.Integration.TargetBranch == "" {
 			t.Fatalf("%s payload missed migrated defaults: %#v", query.name, got)
 		}
+	}
+	published, err := db.Shared.Query(ctx, `SELECT payload FROM hub_outbox WHERE id=?`, "config-migration-published")
+	publishedPayload, payloadOK := []byte(nil), false
+	if err == nil && len(published.Rows) == 1 {
+		publishedPayload, payloadOK = published.Rows[0][0].([]byte)
+	}
+	if err != nil || !payloadOK || !bytes.Equal(publishedPayload, []byte(`not-json`)) {
+		t.Fatalf("published immutable outbox history was migrated: rows=%#v err=%v", published, err)
 	}
 	state, err := db.sharedUpgradeMigrationState(ctx, projectConfigurationRetiredFieldMigrationID)
 	if err != nil || state != "complete" {

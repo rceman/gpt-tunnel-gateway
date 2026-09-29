@@ -7,6 +7,7 @@ import (
 	"os"
 
 	upstream "github.com/rceman/go-sqlite-store/store"
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
 // LocalAgent is the gateway-local authority for one concrete Agent record.
@@ -26,7 +27,7 @@ func (d *Databases) ReadLocalAgent(ctx context.Context, projectID, agentID strin
 	if d == nil || d.Local == nil {
 		return LocalAgent{}, fmt.Errorf("local store is unavailable")
 	}
-	rows, err := d.Local.Query(ctx, `SELECT project_id,agent_id,payload,updated_at FROM local_agents WHERE project_id=? AND agent_id=?`, projectID, agentID)
+	rows, err := d.Local.Query(ctx, `SELECT project_id,agent_id,payload,updated_at FROM local_agents WHERE project_id=? AND agent_id=? AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=local_agents.project_id)`, projectID, agentID)
 	if err != nil {
 		return LocalAgent{}, err
 	}
@@ -58,7 +59,7 @@ func (d *Databases) ListLocalAgents(ctx context.Context, projectID string, limit
 	if limit < 1 {
 		return nil, fmt.Errorf("invalid local agent limit")
 	}
-	rows, err := d.Local.Query(ctx, `SELECT project_id,agent_id,payload,updated_at FROM local_agents WHERE project_id=? ORDER BY agent_id LIMIT ?`, projectID, limit)
+	rows, err := d.Local.Query(ctx, `SELECT project_id,agent_id,payload,updated_at FROM local_agents WHERE project_id=? AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=local_agents.project_id) ORDER BY agent_id LIMIT ?`, projectID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -90,18 +91,33 @@ func (d *Databases) ReplaceLocalAgents(ctx context.Context, projectID string, ag
 	if d == nil || d.Local == nil {
 		return fmt.Errorf("local store is unavailable")
 	}
+	if model.ValidateProjectIdentifier(projectID) != nil {
+		return fmt.Errorf("invalid local Agent project")
+	}
+	retired, err := d.IsLocalProjectRetired(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if retired {
+		return ErrLocalProjectRetired
+	}
 	statements := make([]upstream.Statement, 0, len(agents)+1)
-	statements = append(statements, upstream.Statement{SQL: `DELETE FROM local_agents WHERE project_id=?`, Args: []any{projectID}})
+	statements = append(statements, upstream.Statement{SQL: `DELETE FROM local_agents WHERE project_id=? AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=?)`, Args: []any{projectID, projectID}})
 	for _, agent := range agents {
 		if agent.ProjectID != projectID || agent.AgentID == "" || len(agent.Payload) == 0 || agent.UpdatedAt == "" {
 			return fmt.Errorf("invalid local agent projection")
 		}
 		statements = append(statements, upstream.Statement{
-			SQL:  `INSERT INTO local_agents(project_id,agent_id,payload,updated_at) VALUES(?,?,?,?)`,
-			Args: []any{agent.ProjectID, agent.AgentID, agent.Payload, agent.UpdatedAt},
+			SQL:  `INSERT INTO local_agents(project_id,agent_id,payload,updated_at) SELECT ?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=?)`,
+			Args: []any{agent.ProjectID, agent.AgentID, agent.Payload, agent.UpdatedAt, projectID}, RequireRowsAffected: 1,
 		})
 	}
-	_, err := d.Local.Batch(ctx, statements)
+	_, err = d.Local.Batch(ctx, statements)
+	if err != nil {
+		if retired, readErr := d.IsLocalProjectRetired(ctx, projectID); readErr == nil && retired {
+			return ErrLocalProjectRetired
+		}
+	}
 	return err
 }
 
@@ -109,11 +125,14 @@ func (d *Databases) CreateLocalAgent(ctx context.Context, agent LocalAgent) erro
 	if d == nil || d.Local == nil {
 		return fmt.Errorf("local store is unavailable")
 	}
-	if agent.ProjectID == "" || agent.AgentID == "" || len(agent.Payload) == 0 || agent.UpdatedAt == "" {
+	if model.ValidateProjectIdentifier(agent.ProjectID) != nil || agent.AgentID == "" || len(agent.Payload) == 0 || agent.UpdatedAt == "" {
 		return fmt.Errorf("invalid local agent projection")
 	}
-	_, err := d.Local.Exec(ctx, `INSERT INTO local_agents(project_id,agent_id,payload,updated_at) VALUES(?,?,?,?)`, agent.ProjectID, agent.AgentID, agent.Payload, agent.UpdatedAt)
+	_, err := d.Local.Batch(ctx, []upstream.Statement{{SQL: `INSERT INTO local_agents(project_id,agent_id,payload,updated_at) SELECT ?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=?)`, Args: []any{agent.ProjectID, agent.AgentID, agent.Payload, agent.UpdatedAt, agent.ProjectID}, RequireRowsAffected: 1}})
 	if err != nil {
+		if retired, readErr := d.IsLocalProjectRetired(ctx, agent.ProjectID); readErr == nil && retired {
+			return ErrLocalProjectRetired
+		}
 		if _, readErr := d.ReadLocalAgent(ctx, agent.ProjectID, agent.AgentID); readErr == nil {
 			return ErrLocalAgentExists
 		}
@@ -126,14 +145,17 @@ func (d *Databases) UpdateLocalAgent(ctx context.Context, agent LocalAgent, oldP
 	if d == nil || d.Local == nil {
 		return fmt.Errorf("local store is unavailable")
 	}
-	if agent.ProjectID == "" || agent.AgentID == "" || len(agent.Payload) == 0 || len(oldPayload) == 0 || agent.UpdatedAt == "" {
+	if model.ValidateProjectIdentifier(agent.ProjectID) != nil || agent.AgentID == "" || len(agent.Payload) == 0 || len(oldPayload) == 0 || agent.UpdatedAt == "" {
 		return fmt.Errorf("invalid local agent update")
 	}
-	result, err := d.Local.Exec(ctx, `UPDATE local_agents SET payload=?,updated_at=? WHERE project_id=? AND agent_id=? AND payload=?`, agent.Payload, agent.UpdatedAt, agent.ProjectID, agent.AgentID, oldPayload)
+	result, err := d.Local.Exec(ctx, `UPDATE local_agents SET payload=?,updated_at=? WHERE project_id=? AND agent_id=? AND payload=? AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=?)`, agent.Payload, agent.UpdatedAt, agent.ProjectID, agent.AgentID, oldPayload, agent.ProjectID)
 	if err != nil {
 		return err
 	}
 	if result.RowsAffected != 1 {
+		if retired, readErr := d.IsLocalProjectRetired(ctx, agent.ProjectID); readErr == nil && retired {
+			return ErrLocalProjectRetired
+		}
 		return ErrLocalAgentChanged
 	}
 	return nil
@@ -144,9 +166,14 @@ func (d *Databases) UpsertLocalAgent(ctx context.Context, agent LocalAgent) erro
 	if d == nil || d.Local == nil {
 		return fmt.Errorf("local store is unavailable")
 	}
-	if agent.ProjectID == "" || agent.AgentID == "" || len(agent.Payload) == 0 || agent.UpdatedAt == "" {
+	if model.ValidateProjectIdentifier(agent.ProjectID) != nil || agent.AgentID == "" || len(agent.Payload) == 0 || agent.UpdatedAt == "" {
 		return fmt.Errorf("invalid local agent projection")
 	}
-	_, err := d.Local.Exec(ctx, `INSERT INTO local_agents(project_id,agent_id,payload,updated_at) VALUES(?,?,?,?) ON CONFLICT(project_id,agent_id) DO UPDATE SET payload=excluded.payload,updated_at=excluded.updated_at`, agent.ProjectID, agent.AgentID, agent.Payload, agent.UpdatedAt)
+	_, err := d.Local.Batch(ctx, []upstream.Statement{{SQL: `INSERT INTO local_agents(project_id,agent_id,payload,updated_at) SELECT ?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=?) ON CONFLICT(project_id,agent_id) DO UPDATE SET payload=excluded.payload,updated_at=excluded.updated_at`, Args: []any{agent.ProjectID, agent.AgentID, agent.Payload, agent.UpdatedAt, agent.ProjectID}, RequireRowsAffected: 1}})
+	if err != nil {
+		if retired, readErr := d.IsLocalProjectRetired(ctx, agent.ProjectID); readErr == nil && retired {
+			return ErrLocalProjectRetired
+		}
+	}
 	return err
 }

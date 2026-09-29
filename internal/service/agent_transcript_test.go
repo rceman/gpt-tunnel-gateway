@@ -120,7 +120,7 @@ func TestResolveAgentTailSessionUsesDurableBindingAndRejectsInvalidRecords(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.CreateLocalSession(context.Background(), sqlitestore.LocalSession{ID: nilRecord.ID, Payload: nilPayload, UpdatedAt: now.Format(time.RFC3339Nano), Status: nilRecord.Status}); err != nil {
+	if err := db.CreateLocalSession(context.Background(), sqlitestore.LocalSession{ID: nilRecord.ID, ProjectID: nilRecord.ProjectID, SessionType: string(nilRecord.SessionType), Payload: nilPayload, UpdatedAt: now.Format(time.RFC3339Nano), Status: nilRecord.Status}); err != nil {
 		t.Fatal(err)
 	}
 	invalidRef := "not a valid ref"
@@ -133,7 +133,7 @@ func TestResolveAgentTailSessionUsesDurableBindingAndRejectsInvalidRecords(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.CreateLocalSession(context.Background(), sqlitestore.LocalSession{ID: invalidRecord.ID, Payload: payload, UpdatedAt: invalidRecord.UpdatedAt.Format(time.RFC3339Nano), Status: invalidRecord.Status}); err != nil {
+	if err := db.CreateLocalSession(context.Background(), sqlitestore.LocalSession{ID: invalidRecord.ID, ProjectID: invalidRecord.ProjectID, SessionType: string(invalidRecord.SessionType), Payload: payload, UpdatedAt: invalidRecord.UpdatedAt.Format(time.RFC3339Nano), Status: invalidRecord.Status}); err != nil {
 		t.Fatal(err)
 	}
 	for _, test := range []struct {

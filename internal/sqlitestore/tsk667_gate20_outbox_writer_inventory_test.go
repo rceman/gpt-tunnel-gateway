@@ -24,11 +24,12 @@ func TestTSK667Gate20OutboxPayloadWriterInventory(t *testing.T) {
 		{path: "internal/sqlitestore/databases_shared_task_summary_migration.go", inserts: 1, storageContract: "json.Marshal []byte parameter stored as BLOB", payloadReferences: []string{`"task-summary-migration", newPayload`}},
 		{path: "internal/sqlitestore/databases_relation_outbox_migration.go", inserts: 2, storageContract: "legacy TEXT trigger is replaced by the active BLOB trigger", payloadReferences: []string{"DROP TRIGGER IF EXISTS shared_relations_hub_outbox_after_insert", "CAST(json_object(", " AS BLOB)"}},
 		{path: "internal/sqlitestore/project_configuration_hard_cut_migration.go", updates: 1, storageContract: "validated canonical JSON []byte update stored as BLOB", payloadReferences: []string{"MigrateProjectConfigurationPayload(payload)", "UPDATE hub_outbox SET payload=?", "Args: []any{canonical, id}"}},
+		{path: "internal/sqlitestore/project_retirement.go", inserts: 1, storageContract: "canonical ProjectRetirement JSON []byte parameter stored as BLOB", payloadReferences: []string{`"project-retirement", payload`}},
 		{path: "internal/sqlitestore/shared_lifecycle_event.go", inserts: 1, storageContract: "JSON []byte parameter stored as BLOB", payloadReferences: []string{"request.Kind, request.Payload, recorded"}},
 		{path: "internal/sqlitestore/shared_lifecycle_mutation.go", inserts: 1, storageContract: "JSON []byte parameter stored as BLOB", payloadReferences: []string{"request.Kind, payload, created"}},
 		{path: "internal/sqlitestore/shared_lifecycle_revision.go", inserts: 1, storageContract: "JSON []byte parameter stored as BLOB", payloadReferences: []string{"request.Kind, request.Payload, recorded"}},
 		{path: "internal/sqlitestore/shared_mutation_entity_sequence.go", inserts: 1, storageContract: "JSON []byte parameter stored as BLOB", payloadReferences: []string{"request.Kind, payload, created"}},
-		{path: "internal/sqlitestore/shared_mutation_mutation_outbox_core.go", inserts: 2, storageContract: "JSON []byte parameter stored as BLOB", payloadReferences: []string{"mutation.Kind, mutation.Payload, created", "request.Kind, payload, created"}},
+		{path: "internal/sqlitestore/shared_mutation_mutation_outbox_core.go", inserts: 3, storageContract: "JSON []byte parameter stored as BLOB", payloadReferences: []string{"mutation.Kind, mutation.Payload, created", "request.Kind, payload, created"}},
 		{path: "internal/sqlitestore/shared_relations.go", inserts: 1, storageContract: "json.Marshal []byte parameter stored as BLOB", payloadReferences: []string{`"relation-create", payload`}},
 	}
 	insertPattern := regexp.MustCompile(`(?i)\bINSERT\s+(?:OR\s+IGNORE\s+)?INTO\s+hub_outbox\b`)

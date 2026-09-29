@@ -65,14 +65,18 @@ func Open(stateDir string) (*Databases, error) { return OpenWithConfig(Config{St
 // OpenWithObserver is the same durable open path as OpenWithConfig, with
 // bounded phase notifications for daemon startup diagnostics.
 func OpenWithObserver(stateDir string, observe func(string)) (*Databases, error) {
-	return openWithConfig(Config{StateDir: stateDir}, observe)
+	return openWithConfig(Config{StateDir: stateDir}, observe, false)
+}
+
+func OpenWithObserverDeferredProjectConfigurationMigration(stateDir string, observe func(string)) (*Databases, error) {
+	return openWithConfig(Config{StateDir: stateDir}, observe, true)
 }
 
 func OpenWithConfig(cfg Config) (*Databases, error) {
-	return openWithConfig(cfg, nil)
+	return openWithConfig(cfg, nil, false)
 }
 
-func openWithConfig(cfg Config, observe func(string)) (*Databases, error) {
+func openWithConfig(cfg Config, observe func(string), deferProjectConfigurationMigration bool) (*Databases, error) {
 	notify := func(phase string) {
 		if observe != nil {
 			observe(phase)
@@ -123,7 +127,7 @@ func openWithConfig(cfg Config, observe func(string)) (*Databases, error) {
 		sharedPath: sharedPath,
 		localPath:  localPath,
 	}
-	if err := applyMigrations(context.Background(), db, notify); err != nil {
+	if err := applyMigrations(context.Background(), db, notify, deferProjectConfigurationMigration); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -172,7 +176,7 @@ func engineConfig(cfg Config) func(string) store.Config {
 	}
 }
 
-func applyMigrations(ctx context.Context, db *Databases, notify func(string)) error {
+func applyMigrations(ctx context.Context, db *Databases, notify func(string), deferProjectConfigurationMigration bool) error {
 	if notify != nil {
 		notify("SQLITE_SHARED_MIGRATION")
 	}
@@ -203,6 +207,14 @@ func applyMigrations(ctx context.Context, db *Databases, notify func(string)) er
 			Err:      err,
 		}
 	}
+	if err := db.MigrateLocalSessionProjectCoordinates(ctx); err != nil {
+		return &OpenError{
+			Stage:    "migration",
+			Database: "local_session_project_coordinates",
+			Path:     db.localPath,
+			Err:      err,
+		}
+	}
 	if err := db.MigrateTaskExecutionStateToLocal(ctx); err != nil {
 		return &OpenError{
 			Stage:    "migration",
@@ -211,12 +223,14 @@ func applyMigrations(ctx context.Context, db *Databases, notify func(string)) er
 			Err:      err,
 		}
 	}
-	if err := db.MigrateProjectConfigurationToCanonical(ctx); err != nil {
-		return &OpenError{
-			Stage:    "migration",
-			Database: "project_configuration",
-			Path:     db.sharedPath,
-			Err:      err,
+	if !deferProjectConfigurationMigration {
+		if err := db.MigrateProjectConfigurationToCanonical(ctx); err != nil {
+			return &OpenError{
+				Stage:    "migration",
+				Database: "project_configuration",
+				Path:     db.sharedPath,
+				Err:      err,
+			}
 		}
 	}
 	if err := db.MigrateLegacySharedSequences(ctx); err != nil {
@@ -275,6 +289,8 @@ const (
 	sharedRelationOutboxMigrationName                     = "publish Shared relations to Hub outbox"
 	sharedRelationOutboxBlobMigrationVersion        int64 = 202609251345
 	sharedRelationOutboxBlobMigrationName                 = "store Shared relation outbox payloads as BLOB"
+	sharedProjectRetirementMigrationVersion         int64 = 202609282300
+	sharedProjectRetirementMigrationName                  = "add explicit project retirement authority"
 	localBaselineVersion                            int64 = 202609080505
 	localBaselineName                                     = "create local baseline"
 	localTokenUsageMigrationVersion                 int64 = 202609102010
@@ -295,4 +311,6 @@ const (
 	localTaskExecutionMigrationName                       = "create Local TaskExecution authority"
 	localAgentWorkHookMigrationVersion              int64 = 202609241300
 	localAgentWorkHookMigrationName                       = "link Agent-work Hook epochs to Procedure Operations"
+	localProjectRetirementMigrationVersion          int64 = 202609282301
+	localProjectRetirementMigrationName                   = "add Local project retirement admission fences"
 )

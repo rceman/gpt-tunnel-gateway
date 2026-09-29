@@ -241,6 +241,27 @@ func TestPostReadyHubSyncLoopRetriesExpiredAttemptUntilHubEnsureCompletes(t *tes
 	}
 }
 
+func TestBootstrapDefersProjectConfigurationMigrationOnlyInDebugMode(t *testing.T) {
+	for _, debugEnabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("debug_%v", debugEnabled), func(t *testing.T) {
+			c := testBootstrapConfig(t)
+			c.Debug.Enabled = debugEnabled
+			runtime, err := bootstrapGateway(c, nil, writeBootstrapConfig(t, c))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer closeBootstrap(t, runtime)
+			complete, err := runtime.durability.ProjectConfigurationMigrationComplete(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if complete == debugEnabled {
+				t.Fatalf("ProjectConfiguration migration complete=%v with debug=%v", complete, debugEnabled)
+			}
+		})
+	}
+}
+
 func TestBootstrapFailsBeforeHTTPReadyOnCorruptSQLite(t *testing.T) {
 	c := testBootstrapConfig(t)
 	sharedPath := filepath.Join(c.StateDir, "databases", "shared.db")

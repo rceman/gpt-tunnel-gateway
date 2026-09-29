@@ -13,7 +13,7 @@ func (d *Databases) ReadTaskExecutionState(ctx context.Context, projectID, taskI
 	if d == nil || d.Local == nil {
 		return model.TaskExecutionState{}, false, fmt.Errorf("local store is unavailable")
 	}
-	rows, err := d.Local.Query(ctx, `SELECT task_id,project_id,task_revision,task_revision_sha256,status,stage,worktree,base_head_sha,head_sha,branch,agent,execution_revision,updated_at FROM local_task_execution_states WHERE project_id=? AND task_id=?`, projectID, taskID)
+	rows, err := d.Local.Query(ctx, `SELECT task_id,project_id,task_revision,task_revision_sha256,status,stage,worktree,base_head_sha,head_sha,branch,agent,execution_revision,updated_at FROM local_task_execution_states WHERE project_id=? AND task_id=? AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=local_task_execution_states.project_id)`, projectID, taskID)
 	if err != nil {
 		return model.TaskExecutionState{}, false, err
 	}
@@ -59,6 +59,6 @@ func (d *Databases) CreateTaskExecutionState(ctx context.Context, state model.Ta
 	if err := model.ValidateTaskExecutionState(state); err != nil {
 		return err
 	}
-	_, err := d.Local.Batch(ctx, []upstream.Statement{{SQL: `INSERT INTO local_task_execution_states(task_id,project_id,task_revision,task_revision_sha256,status,stage,worktree,base_head_sha,head_sha,branch,agent,execution_revision,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, Args: []any{state.TaskID, state.ProjectID, state.TaskRevision, state.TaskRevisionSHA256, state.Status, state.Stage, state.Worktree, state.BaseHead, state.Head, state.Branch, state.Agent, state.ExecutionRevision, state.UpdatedAt.UTC().Format(time.RFC3339Nano)}}})
+	_, err := d.Local.Batch(ctx, []upstream.Statement{{SQL: `INSERT INTO local_task_execution_states(task_id,project_id,task_revision,task_revision_sha256,status,stage,worktree,base_head_sha,head_sha,branch,agent,execution_revision,updated_at) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=?)`, Args: []any{state.TaskID, state.ProjectID, state.TaskRevision, state.TaskRevisionSHA256, state.Status, state.Stage, state.Worktree, state.BaseHead, state.Head, state.Branch, state.Agent, state.ExecutionRevision, state.UpdatedAt.UTC().Format(time.RFC3339Nano), state.ProjectID}, RequireRowsAffected: 1}})
 	return err
 }

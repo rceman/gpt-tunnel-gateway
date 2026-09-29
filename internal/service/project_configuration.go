@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
@@ -15,11 +16,53 @@ func (s *Service) projectConfigurationPath(projectID string) string {
 }
 
 func (s *Service) ProjectConfigurationRead(ctx context.Context, projectID string) (model.ProjectConfiguration, error) {
+	return s.projectConfigurationRead(ctx, projectID, false)
+}
+
+func (s *Service) projectConfigurationRead(ctx context.Context, projectID string, failClosedOnHubError bool) (model.ProjectConfiguration, error) {
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return model.ProjectConfiguration{}, err
 	}
+	retired, err := s.isProjectRetired(ctx, projectID)
+	if err != nil {
+		return model.ProjectConfiguration{}, err
+	}
+	if retired {
+		return model.ProjectConfiguration{}, fmt.Errorf("project %q is retired", projectID)
+	}
 	if s.Durability != nil {
-		return s.projectConfigurationReadShared(ctx, projectID)
+		configuration, sharedErr := s.projectConfigurationReadShared(ctx, projectID)
+		if sharedErr == nil {
+			_, hubRetired, hubErr := s.readHubProjectRetirementBounded(ctx, projectID)
+			if hubErr == nil && hubRetired {
+				return model.ProjectConfiguration{}, fmt.Errorf("project %q is retired", projectID)
+			}
+			if hubErr != nil && (failClosedOnHubError || errors.Is(hubErr, ErrInvalidHubProjectRetirement) || ctx.Err() != nil) {
+				if ctx.Err() != nil {
+					return model.ProjectConfiguration{}, ctx.Err()
+				}
+				return model.ProjectConfiguration{}, hubErr
+			}
+			return configuration, nil
+		}
+		if !IsNotFound(sharedErr) {
+			return model.ProjectConfiguration{}, sharedErr
+		}
+		_, hubRetired, hubErr := s.readHubProjectRetirementBounded(ctx, projectID)
+		if hubErr != nil {
+			return model.ProjectConfiguration{}, hubErr
+		}
+		if hubRetired {
+			return model.ProjectConfiguration{}, fmt.Errorf("project %q is retired", projectID)
+		}
+		return model.ProjectConfiguration{}, sharedErr
+	}
+	_, retired, err = s.readHubProjectRetirementBounded(ctx, projectID)
+	if err != nil {
+		return model.ProjectConfiguration{}, err
+	}
+	if retired {
+		return model.ProjectConfiguration{}, fmt.Errorf("project %q is retired", projectID)
 	}
 	data, err := s.Hub.ReadFile(ctx, s.projectConfigurationPath(projectID))
 	if err != nil {

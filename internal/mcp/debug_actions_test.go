@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,7 +21,7 @@ func TestDebugDomainIsAbsentWhenDisabled(t *testing.T) {
 	s, _ := mcpServiceWithSQLite(t, config.Config{StateDir: t.TempDir()})
 	server := &Server{Service: s}
 	entries := server.genericActionRegistry(server.tools())
-	for _, path := range []string{"debug/status", "debug/prompt", "debug/tail", "debug/await", "debug/activate"} {
+	for _, path := range []string{"debug/status", "debug/prompt", "debug/tail", "debug/await", "debug/project-retire", "debug/project-configuration-migrate", "debug/activate"} {
 		if _, ok := entries[path]; ok {
 			t.Fatalf("disabled debug action %q was registered", path)
 		}
@@ -45,7 +46,7 @@ func TestEnabledDebugDomainHasExactInitialActions(t *testing.T) {
 	})
 	server := &Server{Service: s}
 	entries := server.genericActionRegistry(server.tools())
-	want := map[string]bool{"debug/status": true, "debug/prompt": true, "debug/tail": true, "debug/await": true, "debug/activate": true}
+	want := map[string]bool{"debug/status": true, "debug/prompt": true, "debug/tail": true, "debug/await": true, "debug/project-retire": true, "debug/project-configuration-migrate": true, "debug/activate": true}
 	got := map[string]bool{}
 	for path := range entries {
 		if strings.HasPrefix(path, "debug/") {
@@ -95,16 +96,61 @@ func TestEnabledDebugDomainHasExactInitialActions(t *testing.T) {
 	}
 }
 
+func TestDebugProjectRetireInputIsClosedAndExact(t *testing.T) {
+	s, _ := mcpServiceWithSQLite(t, config.Config{Debug: config.DebugConfig{Enabled: true}, StateDir: t.TempDir()})
+	server := &Server{Service: s}
+	entries := server.genericActionRegistry(server.tools())
+	entry, ok := entries["debug/project-retire"]
+	if !ok {
+		t.Fatal("debug/project-retire was not registered")
+	}
+	if entry.InputSchema["additionalProperties"] != false {
+		t.Fatalf("retirement input schema is not closed: %#v", entry.InputSchema)
+	}
+	properties, ok := entry.InputSchema["properties"].(map[string]any)
+	if !ok || len(properties) != 2 {
+		t.Fatalf("retirement input properties=%#v", entry.InputSchema["properties"])
+	}
+	if _, ok := properties["key"]; !ok {
+		t.Fatal("retirement input omitted exact project key")
+	}
+	if _, ok := properties["reason"]; !ok {
+		t.Fatal("retirement input omitted reason")
+	}
+	required, ok := entry.InputSchema["required"].([]string)
+	if !ok || len(required) != 2 || required[0] != "key" || required[1] != "reason" {
+		t.Fatalf("retirement required fields=%#v", entry.InputSchema["required"])
+	}
+	var rawInput map[string]any
+	if err := json.Unmarshal(mustJSON(t, map[string]any{"key": "agentir", "reason": "stale project"}), &rawInput); err != nil {
+		t.Fatal(err)
+	}
+	adaptedInput, err := server.actionContractSet().AdaptInput("debug/project-retire", rawInput)
+	inputObject, ok := adaptedInput.(map[string]any)
+	if err != nil || !ok || inputObject["project_id"] != "agentir" {
+		t.Fatalf("retirement handler input mapping=%#v err=%v", adaptedInput, err)
+	}
+	adaptedOutput, err := server.actionContractSet().AdaptOutput("debug/project-retire", map[string]any{
+		"project_id": "agentir", "status": "retired", "configuration_revision": 3,
+		"cancelled_config_publications": 2, "already_retired": false,
+	})
+	if err != nil || adaptedOutput.(map[string]any)["key"] != "agentir" {
+		t.Fatalf("retirement handler output mapping=%#v err=%v", adaptedOutput, err)
+	}
+}
+
 func TestEnabledDebugSchemaDiscoveryIsExactForPlannerAndLead(t *testing.T) {
 	s, _ := mcpServiceWithSQLite(t, config.Config{Debug: config.DebugConfig{Enabled: true}, StateDir: t.TempDir()})
 	server := &Server{Service: s}
 	store := mcpSQLiteSessionStore(t, s)
 	want := map[string]bool{
-		"debug/status":   true,
-		"debug/prompt":   true,
-		"debug/tail":     true,
-		"debug/await":    true,
-		"debug/activate": true,
+		"debug/status":                        true,
+		"debug/prompt":                        true,
+		"debug/tail":                          true,
+		"debug/await":                         true,
+		"debug/activate":                      true,
+		"debug/project-retire":                true,
+		"debug/project-configuration-migrate": true,
 	}
 	for _, role := range []string{durableSession.RolePlanner, durableSession.RoleLead} {
 		record := debugTestSession(t, store, role)

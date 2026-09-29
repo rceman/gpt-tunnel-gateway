@@ -96,7 +96,7 @@ func (d *Databases) MigrateProjectConfigurationToCanonical(ctx context.Context) 
 		}
 		return MigrateProjectConfigurationPayloadWithPolicy(payload, policy)
 	}
-	rows, err := d.Shared.Query(ctx, `SELECT id,revision,payload FROM shared_project_configurations ORDER BY id LIMIT ?`, int64(projectConfigurationHardCutMaxRows+1))
+	rows, err := d.Shared.Query(ctx, `SELECT id,revision,payload FROM shared_project_configurations WHERE NOT EXISTS(SELECT 1 FROM shared_project_retirements r WHERE r.project_id=shared_project_configurations.id) ORDER BY id LIMIT ?`, int64(projectConfigurationHardCutMaxRows+1))
 	if err != nil {
 		return err
 	}
@@ -127,7 +127,7 @@ func (d *Databases) MigrateProjectConfigurationToCanonical(ctx context.Context) 
 		}
 		statements = append(statements, upstream.Statement{SQL: `UPDATE shared_project_configurations SET payload=? WHERE id=? AND revision=?`, Args: []any{canonical, id, revision}})
 	}
-	outbox, err := d.Shared.Query(ctx, `SELECT id,entity_id,revision,payload FROM hub_outbox WHERE entity_type='project_configuration' ORDER BY id LIMIT ?`, int64(projectConfigurationHardCutMaxRows+1))
+	outbox, err := d.Shared.Query(ctx, `SELECT id,entity_id,revision,payload FROM hub_outbox WHERE entity_type='project_configuration' AND published_at IS NULL AND cancelled_at IS NULL AND NOT EXISTS(SELECT 1 FROM shared_project_retirements r WHERE r.project_id=hub_outbox.entity_id OR r.project_id=hub_outbox.project_id) ORDER BY id LIMIT ?`, int64(projectConfigurationHardCutMaxRows+1))
 	if err != nil {
 		return err
 	}
@@ -159,7 +159,7 @@ func (d *Databases) MigrateProjectConfigurationToCanonical(ctx context.Context) 
 		}
 		statements = append(statements, upstream.Statement{SQL: `UPDATE hub_outbox SET payload=? WHERE id=?`, Args: []any{canonical, id}})
 	}
-	revisions, err := d.Shared.Query(ctx, `SELECT entity_id,project_id,revision,payload FROM shared_entity_revisions WHERE entity_type='project_configuration' ORDER BY entity_id,revision LIMIT ?`, int64(projectConfigurationHardCutMaxRows+1))
+	revisions, err := d.Shared.Query(ctx, `SELECT entity_id,project_id,revision,payload FROM shared_entity_revisions WHERE entity_type='project_configuration' AND NOT EXISTS(SELECT 1 FROM shared_project_retirements r WHERE r.project_id=shared_entity_revisions.project_id OR r.project_id=shared_entity_revisions.entity_id) ORDER BY entity_id,revision LIMIT ?`, int64(projectConfigurationHardCutMaxRows+1))
 	if err != nil {
 		return err
 	}

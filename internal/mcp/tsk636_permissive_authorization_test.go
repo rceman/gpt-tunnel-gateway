@@ -18,7 +18,7 @@ func TestTSK636AuthenticatedWorkflowRolesShareSchemaAndActionAuthorization(t *te
 		"task":  {"task/read"},
 		"adr":   {"adr/list"},
 		"agent": {"agent/status"},
-		"debug": {"debug/status", "debug/prompt", "debug/tail", "debug/await", "debug/activate"},
+		"debug": {"debug/status", "debug/prompt", "debug/tail", "debug/await", "debug/project-retire", "debug/project-configuration-migrate", "debug/activate"},
 	}
 	for role, sessionID := range fixture.sessions {
 		for domain, wantPaths := range wantDomains {

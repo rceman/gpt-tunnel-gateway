@@ -55,6 +55,13 @@ func (d *Databases) allocateLocalOperation(ctx context.Context, projectID, proje
 	if err := model.ValidateProjectCode(projectCode); err != nil {
 		return LocalOperation{}, err
 	}
+	retired, err := d.IsLocalProjectRetired(ctx, projectID)
+	if err != nil {
+		return LocalOperation{}, err
+	}
+	if retired {
+		return LocalOperation{}, ErrLocalProjectRetired
+	}
 	if len(mutationID) != 64 {
 		return LocalOperation{}, fmt.Errorf("invalid operation mutation identity")
 	}
@@ -85,12 +92,15 @@ func (d *Databases) allocateLocalOperation(ctx context.Context, projectID, proje
 		return LocalOperation{}, err
 	}
 	at := now.UTC().Format(time.RFC3339Nano)
-	_, err := d.Local.Batch(ctx, []upstream.Statement{
+	_, err = d.Local.Batch(ctx, []upstream.Statement{
 		{SQL: `INSERT OR IGNORE INTO local_operation_sequences(project_id,project_code,next_number) VALUES(?,?,1)`, Args: []any{projectID, projectCode}},
-		{SQL: `INSERT INTO local_operations(operation_id,project_id,project_code,operation_number,mutation_id,kind,status,result_payload,error,recovery_reason,created_at,updated_at,admission_session_id,admission_input_sha256) SELECT project_code || '-OPR' || CAST(next_number AS TEXT),project_id,project_code,next_number,?,?,?,NULL,'','',?,?,?,? FROM local_operation_sequences WHERE project_id=? AND project_code=?`, Args: []any{mutationID, kind, "accepted", at, at, sessionID, inputSHA256, projectID, projectCode}, RequireRowsAffected: 1},
+		{SQL: `INSERT INTO local_operations(operation_id,project_id,project_code,operation_number,mutation_id,kind,status,result_payload,error,recovery_reason,created_at,updated_at,admission_session_id,admission_input_sha256) SELECT project_code || '-OPR' || CAST(next_number AS TEXT),project_id,project_code,next_number,?,?,?,NULL,'','',?,?,?,? FROM local_operation_sequences WHERE project_id=? AND project_code=? AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=?)`, Args: []any{mutationID, kind, "accepted", at, at, sessionID, inputSHA256, projectID, projectCode, projectID}, RequireRowsAffected: 1},
 		{SQL: `UPDATE local_operation_sequences SET next_number=next_number+1 WHERE project_id=? AND project_code=?`, Args: []any{projectID, projectCode}, RequireRowsAffected: 1},
 	})
 	if err != nil {
+		if retired, readErr := d.IsLocalProjectRetired(ctx, projectID); readErr == nil && retired {
+			return LocalOperation{}, ErrLocalProjectRetired
+		}
 		if existing, readErr := d.ReadLocalOperationByMutation(ctx, mutationID); readErr == nil {
 			if inputSHA256 != "" && (existing.AdmissionSessionID != sessionID || existing.AdmissionInputSHA256 != inputSHA256) {
 				return LocalOperation{}, fmt.Errorf("local operation admission coordinate mismatch")
@@ -106,7 +116,7 @@ func (d *Databases) ReadLocalOperation(ctx context.Context, operationID string) 
 	if d == nil || d.Local == nil || model.ValidateOperationID(operationID) != nil {
 		return LocalOperation{}, fmt.Errorf("invalid local operation identifier")
 	}
-	rows, err := d.Local.Query(ctx, localOperationSelect+` WHERE operation_id=?`, operationID)
+	rows, err := d.Local.Query(ctx, localOperationSelect+` WHERE operation_id=? AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=local_operations.project_id)`, operationID)
 	if err != nil {
 		return LocalOperation{}, err
 	}
@@ -123,7 +133,7 @@ func (d *Databases) ReadLocalOperationByMutation(ctx context.Context, mutationID
 	if _, err := hex.DecodeString(mutationID); err != nil {
 		return LocalOperation{}, fmt.Errorf("invalid local operation mutation identity: %w", err)
 	}
-	rows, err := d.Local.Query(ctx, localOperationSelect+` WHERE mutation_id=?`, mutationID)
+	rows, err := d.Local.Query(ctx, localOperationSelect+` WHERE mutation_id=? AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=local_operations.project_id)`, mutationID)
 	if err != nil {
 		return LocalOperation{}, err
 	}
@@ -140,7 +150,7 @@ func (d *Databases) ListLocalOperations(ctx context.Context, projectID string) (
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return nil, err
 	}
-	rows, err := d.Local.Query(ctx, localOperationSelect+` WHERE project_id=? ORDER BY operation_number DESC`, projectID)
+	rows, err := d.Local.Query(ctx, localOperationSelect+` WHERE project_id=? AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=local_operations.project_id) ORDER BY operation_number DESC`, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +172,7 @@ func (d *Databases) ListLocalOperationTurnSummaries(ctx context.Context, project
 	if err := model.ValidateProjectIdentifier(projectID); err != nil {
 		return nil, err
 	}
-	rows, err := d.Local.Query(ctx, `SELECT operation_id,project_id,kind,status FROM local_operations WHERE project_id=? ORDER BY operation_id DESC`, projectID)
+	rows, err := d.Local.Query(ctx, `SELECT operation_id,project_id,kind,status FROM local_operations WHERE project_id=? AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=local_operations.project_id) ORDER BY operation_id DESC`, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -200,6 +210,13 @@ func (d *Databases) SetLocalOperationAdmissionCoordinate(ctx context.Context, op
 	if err := validateAdmissionCoordinate(sessionID, inputSHA256); err != nil {
 		return err
 	}
+	retired, err := d.IsLocalProjectRetired(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if retired {
+		return ErrLocalProjectRetired
+	}
 	existing, err := d.ReadLocalOperation(ctx, operationID)
 	if err != nil {
 		return err
@@ -213,7 +230,7 @@ func (d *Databases) SetLocalOperationAdmissionCoordinate(ctx context.Context, op
 	if existing.AdmissionSessionID != "" || existing.AdmissionInputSHA256 != "" {
 		return fmt.Errorf("local operation admission coordinate mismatch")
 	}
-	_, err = d.Local.Batch(ctx, []upstream.Statement{{SQL: `UPDATE local_operations SET admission_session_id=?,admission_input_sha256=? WHERE operation_id=? AND project_id=? AND admission_session_id='' AND admission_input_sha256=''`, Args: []any{sessionID, inputSHA256, operationID, projectID}, RequireRowsAffected: 1}})
+	_, err = d.Local.Batch(ctx, []upstream.Statement{{SQL: `UPDATE local_operations SET admission_session_id=?,admission_input_sha256=? WHERE operation_id=? AND project_id=? AND admission_session_id='' AND admission_input_sha256='' AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=?)`, Args: []any{sessionID, inputSHA256, operationID, projectID, projectID}, RequireRowsAffected: 1}})
 	return err
 }
 
@@ -230,7 +247,7 @@ func (d *Databases) ListLocalOperationsByAdmissionCoordinate(ctx context.Context
 	if err := validateAdmissionCoordinate(sessionID, inputSHA256); err != nil {
 		return nil, err
 	}
-	rows, err := d.Local.Query(ctx, localOperationSelect+` WHERE project_id=? AND kind=? AND admission_session_id=? AND admission_input_sha256=? ORDER BY operation_number DESC`, projectID, kind, sessionID, inputSHA256)
+	rows, err := d.Local.Query(ctx, localOperationSelect+` WHERE project_id=? AND kind=? AND admission_session_id=? AND admission_input_sha256=? AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=local_operations.project_id) ORDER BY operation_number DESC`, projectID, kind, sessionID, inputSHA256)
 	if err != nil {
 		return nil, err
 	}
@@ -255,7 +272,7 @@ func (d *Databases) UpdateLocalOperation(ctx context.Context, operation LocalOpe
 	if err := validateAdmissionCoordinate(operation.AdmissionSessionID, operation.AdmissionInputSHA256); err != nil {
 		return err
 	}
-	_, err := d.Local.Batch(ctx, []upstream.Statement{{SQL: `UPDATE local_operations SET status=?,result_payload=?,error=?,recovery_reason=?,updated_at=?,admission_session_id=?,admission_input_sha256=? WHERE operation_id=? AND project_id=?`, Args: []any{operation.Status, operation.ResultPayload, operation.Error, operation.RecoveryReason, operation.UpdatedAt.UTC().Format(time.RFC3339Nano), operation.AdmissionSessionID, operation.AdmissionInputSHA256, operation.OperationID, operation.ProjectID}, RequireRowsAffected: 1}})
+	_, err := d.Local.Batch(ctx, []upstream.Statement{{SQL: `UPDATE local_operations SET status=?,result_payload=?,error=?,recovery_reason=?,updated_at=?,admission_session_id=?,admission_input_sha256=? WHERE operation_id=? AND project_id=? AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=?)`, Args: []any{operation.Status, operation.ResultPayload, operation.Error, operation.RecoveryReason, operation.UpdatedAt.UTC().Format(time.RFC3339Nano), operation.AdmissionSessionID, operation.AdmissionInputSHA256, operation.OperationID, operation.ProjectID, operation.ProjectID}, RequireRowsAffected: 1}})
 	return err
 }
 

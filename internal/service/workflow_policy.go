@@ -29,6 +29,19 @@ func (s *Service) workflowPolicyPath(projectID string) string {
 }
 
 func (s *Service) ProjectWorkflowPolicyRead(ctx context.Context, projectID string) (model.ProjectWorkflowPolicy, error) {
+	retired, err := s.isProjectRetired(ctx, projectID)
+	if err != nil {
+		return model.ProjectWorkflowPolicy{}, err
+	}
+	if !retired {
+		_, retired, err = s.readHubProjectRetirement(ctx, projectID)
+		if err != nil {
+			return model.ProjectWorkflowPolicy{}, err
+		}
+	}
+	if retired {
+		return model.ProjectWorkflowPolicy{}, fmt.Errorf("project %q is retired", projectID)
+	}
 	policy, _, err := s.projectWorkflowPolicyReadDetailed(ctx, projectID)
 	if err == nil {
 		_ = s.cacheProjectWorkflowPolicy(policy)
@@ -40,6 +53,19 @@ func (s *Service) ProjectWorkflowPolicyRead(ctx context.Context, projectID strin
 // is already seeded, falling back to the canonical read only to seed or repair
 // the cache. Read callers never receive an unvalidated cache entry.
 func (s *Service) ProjectWorkflowPolicyReadFast(ctx context.Context, projectID string) (model.ProjectWorkflowPolicy, error) {
+	retired, err := s.isProjectRetired(ctx, projectID)
+	if err != nil {
+		return model.ProjectWorkflowPolicy{}, err
+	}
+	if !retired {
+		_, retired, err = s.readHubProjectRetirement(ctx, projectID)
+		if err != nil {
+			return model.ProjectWorkflowPolicy{}, err
+		}
+	}
+	if retired {
+		return model.ProjectWorkflowPolicy{}, fmt.Errorf("project %q is retired", projectID)
+	}
 	if s.Durability != nil {
 		configuration, err := s.ProjectConfigurationRead(ctx, projectID)
 		if err != nil {

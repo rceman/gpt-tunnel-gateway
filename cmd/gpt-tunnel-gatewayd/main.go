@@ -112,7 +112,12 @@ func bootstrapGateway(c config.Config, observe func(string), configPath string) 
 		}
 	}
 	startup("SQLITE_OPEN")
-	durability, err := sqlitestore.OpenWithObserver(c.StateDir, startup)
+	var durability *sqlitestore.Databases
+	if c.Debug.Enabled {
+		durability, err = sqlitestore.OpenWithObserverDeferredProjectConfigurationMigration(c.StateDir, startup)
+	} else {
+		durability, err = sqlitestore.OpenWithObserver(c.StateDir, startup)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -204,9 +209,30 @@ func postReadyHubEnsureContext(svc *service.Service, ctx context.Context, phase 
 		startupErrorForPhase("POST_READY_HUB_ENSURE", err)
 		return err
 	}
-	phase("POST_READY_PROJECT_CONFIGURATION_MIGRATION")
+	phase("POST_READY_PROJECT_RETIREMENT_SYNC")
+	if err := svc.SyncProjectRetirements(ctx); err != nil {
+		startupErrorForPhase("POST_READY_PROJECT_RETIREMENT_SYNC", err)
+		return err
+	}
+	if svc.Config.Debug.Enabled {
+		complete, err := svc.Durability.ProjectConfigurationMigrationComplete(ctx)
+		if err != nil {
+			startupErrorForPhase("POST_READY_PROJECT_CONFIGURATION_MIGRATION", err)
+			return err
+		}
+		if !complete {
+			return service.ErrProjectConfigurationMigrationDeferred
+		}
+	} else {
+		phase("POST_READY_PROJECT_CONFIGURATION_MIGRATION")
+		if err := svc.Durability.MigrateProjectConfigurationToCanonical(ctx); err != nil {
+			startupErrorForPhase("POST_READY_PROJECT_CONFIGURATION_MIGRATION", err)
+			return err
+		}
+	}
+	phase("POST_READY_HUB_PROJECT_CONFIGURATION_MIGRATION")
 	if err := svc.MigrateHubProjectConfigurations(ctx); err != nil {
-		startupErrorForPhase("POST_READY_PROJECT_CONFIGURATION_MIGRATION", err)
+		startupErrorForPhase("POST_READY_HUB_PROJECT_CONFIGURATION_MIGRATION", err)
 		return err
 	}
 	return nil

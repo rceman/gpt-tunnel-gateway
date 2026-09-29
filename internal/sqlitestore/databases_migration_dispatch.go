@@ -119,7 +119,7 @@ func applySharedMigrations(ctx context.Context, db *upstream.Store) error {
 			}
 		}
 		migrations := append(append(append(append(append(append(append(append([]migrate.Migration(nil), released...), sharedTaskLifecycleHardCutMigrationMarker()), relations), ruleSeed), priority), milestone), track), sharedUpgradeMigration())
-		migrations = append(migrations, sharedRelationOutboxMigration(), sharedRelationOutboxBlobMigration())
+		migrations = append(migrations, sharedRelationOutboxMigration(), sharedRelationOutboxBlobMigration(), sharedProjectRetirementMigration())
 		return applyActiveMigrations(ctx, db, migrations...)
 	}
 	if err := applyActiveMigrations(ctx, db, released...); err != nil {
@@ -136,7 +136,7 @@ func applySharedMigrations(ctx context.Context, db *upstream.Store) error {
 		}
 	}
 	migrations := append(append(append(append(append(append(append(append([]migrate.Migration(nil), released...), hardCut), relations), ruleSeed), priority), milestone), track), sharedUpgradeMigration())
-	migrations = append(migrations, sharedRelationOutboxMigration(), sharedRelationOutboxBlobMigration())
+	migrations = append(migrations, sharedRelationOutboxMigration(), sharedRelationOutboxBlobMigration(), sharedProjectRetirementMigration())
 	return applyActiveMigrations(ctx, db, migrations...)
 }
 
@@ -155,7 +155,7 @@ func applyLocalMigrations(ctx context.Context, db *upstream.Store) error {
 			if name != localOperationAdmissionMigrationName {
 				return fmt.Errorf("unsupported migration marker %d/%q", localOperationAdmissionMigrationVersion, name)
 			}
-			migrations := append(append(append(append(append(append(append(append([]migrate.Migration(nil), base...), localOperationAdmissionMigrationMarker()), relations), bootstrap), messages), cancellation), localTaskExecutionMigration()), localAgentWorkHookMigration())
+			migrations := append(append(append(append(append(append(append(append([]migrate.Migration(nil), base...), localOperationAdmissionMigrationMarker()), relations), bootstrap), messages), cancellation), localTaskExecutionMigration()), localAgentWorkHookMigration(), localProjectRetirementMigration())
 			return applyActiveMigrations(ctx, db, migrations...)
 		}
 	}
@@ -166,7 +166,7 @@ func applyLocalMigrations(ctx context.Context, db *upstream.Store) error {
 	if err != nil {
 		return err
 	}
-	migrations := append(append(append(append(append(append(append(append([]migrate.Migration(nil), base...), admission), relations), bootstrap), messages), cancellation), localTaskExecutionMigration()), localAgentWorkHookMigration())
+	migrations := append(append(append(append(append(append(append(append([]migrate.Migration(nil), base...), admission), relations), bootstrap), messages), cancellation), localTaskExecutionMigration()), localAgentWorkHookMigration(), localProjectRetirementMigration())
 	return applyActiveMigrations(ctx, db, migrations...)
 }
 

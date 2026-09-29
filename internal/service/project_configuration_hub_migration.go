@@ -67,7 +67,45 @@ func (s *Service) MigrateHubProjectConfigurations(ctx context.Context) error {
 			}
 		}
 	}
-	if len(projects) == 0 {
+	migrationNeeded := false
+	for _, project := range projects {
+		var raw json.RawMessage
+		if err := s.Hub.ReadJSON(ctx, s.projectConfigurationPath(project.ID), &raw); err != nil {
+			if IsNotFound(err) {
+				continue
+			}
+			return fmt.Errorf("read Hub ProjectConfiguration %q: %w", project.ID, err)
+		}
+		_, canonical, err := migrateHubProjectConfigurationPayload(project.ID, raw, policies[project.ID])
+		if err != nil {
+			return fmt.Errorf("migrate Hub ProjectConfiguration %q: %w", project.ID, err)
+		}
+		var compact bytes.Buffer
+		if err := json.Compact(&compact, raw); err != nil {
+			return fmt.Errorf("compact Hub ProjectConfiguration %q: %w", project.ID, err)
+		}
+		if !bytes.Equal(compact.Bytes(), canonical) {
+			migrationNeeded = true
+		}
+	}
+	for projectID, expectedCanonical := range policyPayloads {
+		var raw json.RawMessage
+		if err := s.Hub.ReadJSON(ctx, s.workflowPolicyPath(projectID), &raw); err != nil {
+			return fmt.Errorf("read Hub ProjectWorkflowPolicy %q: %w", projectID, err)
+		}
+		_, canonical, err := migrateHubWorkflowPolicyPayload(projectID, raw)
+		if err != nil || !bytes.Equal(canonical, expectedCanonical) {
+			return fmt.Errorf("Hub ProjectWorkflowPolicy changed during migration")
+		}
+		var compact bytes.Buffer
+		if err := json.Compact(&compact, raw); err != nil {
+			return err
+		}
+		if !bytes.Equal(compact.Bytes(), canonical) {
+			migrationNeeded = true
+		}
+	}
+	if !migrationNeeded {
 		return nil
 	}
 	_, err = s.Hub.Transact(ctx, "", "gateway: migrate Hub ProjectConfigurations", func(worktree string) ([]string, error) {

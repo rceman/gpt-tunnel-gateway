@@ -16,7 +16,10 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
 
-var errSharedOutboxNoop = errors.New("shared outbox publication is already current")
+var (
+	errSharedOutboxNoop      = errors.New("shared outbox publication is already current")
+	errSharedOutboxCancelled = errors.New("shared outbox publication was cancelled by project retirement")
+)
 
 type portableSharedRevision struct {
 	EntityType    string          `json:"entity_type"`
@@ -106,6 +109,9 @@ func (s *Service) sharedOutboxPollFailure() string {
 
 func (s *Service) deliverSharedOutboxEntry(ctx context.Context, entry sqlitestore.OutboxEntry) error {
 	publicationErr := s.publishSharedOutboxEntry(ctx, entry)
+	if errors.Is(publicationErr, errSharedOutboxCancelled) {
+		return s.Durability.MarkOutboxCancelled(context.Background(), entry.ID, "project retired", time.Now().UTC())
+	}
 	if publicationErr == nil || errors.Is(publicationErr, errSharedOutboxNoop) {
 		return s.Durability.MarkOutboxPublished(context.Background(), entry.ID, time.Now().UTC())
 	}
@@ -126,6 +132,13 @@ func sharedOutboxRetryDelay(attempt int64) time.Duration {
 }
 
 func (s *Service) publishSharedOutboxEntry(ctx context.Context, entry sqlitestore.OutboxEntry) error {
+	if entry.EntityType == "project_configuration" {
+		if _, found, err := s.Durability.ReadSharedProjectRetirement(ctx, entry.EntityID); err != nil {
+			return err
+		} else if found {
+			return errSharedOutboxCancelled
+		}
+	}
 	publisher, ok := sharedOutboxPublishers[entry.EntityType]
 	if !ok {
 		return fmt.Errorf("unsupported shared outbox entity %q", entry.EntityType)
@@ -140,7 +153,7 @@ func (s *Service) publishSharedOutboxEntry(ctx context.Context, entry sqlitestor
 }
 
 func (s *Service) publishSharedRevisionOutbox(ctx context.Context, entry sqlitestore.OutboxEntry) error {
-	if s.Durability == nil || entry.EntityType == "relation" || entry.EntityType == "project_configuration" {
+	if s.Durability == nil || entry.EntityType == "relation" || entry.EntityType == "project_configuration" || entry.EntityType == "project_retirement" {
 		return nil
 	}
 	var identity struct {
@@ -201,7 +214,7 @@ func (s *Service) publishSharedRevisionOutbox(ctx context.Context, entry sqlites
 }
 
 func (s *Service) publishSharedLifecycleEventsOutbox(ctx context.Context, entry sqlitestore.OutboxEntry) error {
-	if s.Durability == nil {
+	if s.Durability == nil || entry.EntityType == "project_retirement" {
 		return nil
 	}
 	switch entry.EntityType {
@@ -283,6 +296,7 @@ var sharedOutboxPublishers = map[string]func(*Service, context.Context, sqlitest
 	"rule":                  (*Service).publishSharedRuleOutbox,
 	"journal":               (*Service).publishSharedJournalOutbox,
 	"project_configuration": (*Service).publishSharedProjectConfigurationOutbox,
+	"project_retirement":    (*Service).publishSharedProjectRetirement,
 }
 
 func (s *Service) publishSharedMilestoneOutbox(ctx context.Context, entry sqlitestore.OutboxEntry) error {
@@ -536,6 +550,13 @@ func (s *Service) publishSharedRuleOutbox(ctx context.Context, entry sqlitestore
 }
 
 func (s *Service) publishSharedProjectConfigurationOutbox(ctx context.Context, entry sqlitestore.OutboxEntry) error {
+	if s.Durability != nil {
+		if _, found, err := s.Durability.ReadSharedProjectRetirement(ctx, entry.EntityID); err != nil {
+			return err
+		} else if found {
+			return errSharedOutboxCancelled
+		}
+	}
 	configuration, err := sqlitestore.DecodeCanonicalProjectConfigurationPayload(entry.Payload)
 	if err != nil {
 		return err

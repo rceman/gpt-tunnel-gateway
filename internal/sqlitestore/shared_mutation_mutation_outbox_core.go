@@ -142,6 +142,20 @@ func (d *Databases) CommitSharedMutation(ctx context.Context, mutation SharedMut
 	if len(mutation.Payload) == 0 {
 		return SharedMutationReceipt{}, fmt.Errorf("shared mutation payload is empty")
 	}
+	if mutation.EntityType == "project_configuration" {
+		retired, err := d.IsLocalProjectRetired(ctx, mutation.EntityID)
+		if err != nil {
+			return SharedMutationReceipt{}, err
+		}
+		if retired {
+			return SharedMutationReceipt{}, ErrLocalProjectRetired
+		}
+		if _, found, err := d.ReadSharedProjectRetirement(ctx, mutation.EntityID); err != nil {
+			return SharedMutationReceipt{}, err
+		} else if found {
+			return SharedMutationReceipt{}, ErrProjectRetirementConflict
+		}
+	}
 	created := mutation.CreatedAt.UTC().Format(time.RFC3339Nano)
 	if mutation.CreatedAt.IsZero() {
 		created = time.Now().UTC().Format(time.RFC3339Nano)
@@ -153,16 +167,27 @@ func (d *Databases) CommitSharedMutation(ctx context.Context, mutation SharedMut
 	}
 
 	entitySQL := fmt.Sprintf("INSERT INTO %s(id,revision,payload,updated_at) VALUES(?,?,?,?)", table)
+	outboxSQL := `INSERT INTO hub_outbox(id,entity_type,entity_id,revision,kind,payload,created_at) VALUES(?,?,?,?,?,?,?)`
+	entityArgs := []any{mutation.EntityID, mutation.Revision, mutation.Payload, created}
+	outboxArgs := []any{mutation.OperationID, mutation.EntityType, mutation.EntityID, mutation.Revision, mutation.Kind, mutation.Payload, created}
 	if !mutation.Create {
 		entitySQL = fmt.Sprintf("UPDATE %s SET revision=?, payload=?, updated_at=? WHERE id=? AND revision=?", table)
-	}
-	entityArgs := []any{mutation.EntityID, mutation.Revision, mutation.Payload, created}
-	if !mutation.Create {
 		entityArgs = []any{mutation.Revision, mutation.Payload, created, mutation.EntityID, mutation.ExpectedRevision}
+	}
+	if mutation.EntityType == "project_configuration" {
+		if mutation.Create {
+			entitySQL = `INSERT INTO shared_project_configurations(id,revision,payload,updated_at) SELECT ?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM shared_project_retirements WHERE project_id=?)`
+			entityArgs = append(entityArgs, mutation.EntityID)
+		} else {
+			entitySQL = `UPDATE shared_project_configurations SET revision=?,payload=?,updated_at=? WHERE id=? AND revision=? AND NOT EXISTS(SELECT 1 FROM shared_project_retirements WHERE project_id=?)`
+			entityArgs = append(entityArgs, mutation.EntityID)
+		}
+		outboxSQL = `INSERT INTO hub_outbox(id,entity_type,entity_id,revision,kind,payload,created_at) SELECT ?,?,?,?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM shared_project_retirements WHERE project_id=?)`
+		outboxArgs = append(outboxArgs, mutation.EntityID)
 	}
 	_, err := d.Shared.Batch(ctx, []upstream.Statement{
 		{SQL: entitySQL, Args: entityArgs, RequireRowsAffected: 1},
-		{SQL: `INSERT INTO hub_outbox(id,entity_type,entity_id,revision,kind,payload,created_at) VALUES(?,?,?,?,?,?,?)`, Args: []any{mutation.OperationID, mutation.EntityType, mutation.EntityID, mutation.Revision, mutation.Kind, mutation.Payload, created}, RequireRowsAffected: 1},
+		{SQL: outboxSQL, Args: outboxArgs, RequireRowsAffected: 1},
 	})
 	if err != nil {
 		if existing, found, readErr := d.outboxEntry(ctx, mutation.OperationID); readErr == nil && found {

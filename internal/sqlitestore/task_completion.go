@@ -254,9 +254,9 @@ func (d *Databases) completeTaskExecutionState(ctx context.Context, previous, fi
 	if !sameTaskExecutionState(current, previous) {
 		return fmt.Errorf("Task completion Local execution state changed concurrently")
 	}
-	result, err := d.Local.Exec(ctx, `UPDATE local_task_execution_states SET status=?,execution_revision=?,updated_at=? WHERE project_id=? AND task_id=? AND status=? AND stage=? AND worktree=? AND base_head_sha=? AND head_sha=? AND branch=? AND agent=? AND task_revision=? AND task_revision_sha256=? AND execution_revision=? AND updated_at=?`,
+	result, err := d.Local.Exec(ctx, `UPDATE local_task_execution_states SET status=?,execution_revision=?,updated_at=? WHERE project_id=? AND task_id=? AND status=? AND stage=? AND worktree=? AND base_head_sha=? AND head_sha=? AND branch=? AND agent=? AND task_revision=? AND task_revision_sha256=? AND execution_revision=? AND updated_at=? AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=?)`,
 		final.Status, final.ExecutionRevision, final.UpdatedAt.UTC().Format(time.RFC3339Nano),
-		previous.ProjectID, previous.TaskID, previous.Status, previous.Stage, previous.Worktree, previous.BaseHead, previous.Head, previous.Branch, previous.Agent, previous.TaskRevision, previous.TaskRevisionSHA256, previous.ExecutionRevision, previous.UpdatedAt.UTC().Format(time.RFC3339Nano))
+		previous.ProjectID, previous.TaskID, previous.Status, previous.Stage, previous.Worktree, previous.BaseHead, previous.Head, previous.Branch, previous.Agent, previous.TaskRevision, previous.TaskRevisionSHA256, previous.ExecutionRevision, previous.UpdatedAt.UTC().Format(time.RFC3339Nano), previous.ProjectID)
 	if err != nil {
 		return err
 	}
