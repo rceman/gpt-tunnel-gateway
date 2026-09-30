@@ -43,8 +43,8 @@ func DecodeCanonicalProjectConfigurationPayload(data []byte) (model.ProjectConfi
 	return configuration, nil
 }
 
-func (d *Databases) projectConfigurationMigrationState(ctx context.Context) (string, error) {
-	rows, err := d.Shared.Query(ctx, `SELECT state FROM shared_upgrade_migrations WHERE migration_id=?`, projectConfigurationRetiredFieldMigrationID)
+func (d *Databases) projectConfigurationMigrationState(ctx context.Context, migrationID string) (string, error) {
+	rows, err := d.Shared.Query(ctx, `SELECT state FROM shared_upgrade_migrations WHERE migration_id=?`, migrationID)
 	if err != nil {
 		return "", err
 	}
@@ -65,12 +65,12 @@ func (d *Databases) MigrateProjectConfigurationToCanonical(ctx context.Context) 
 	if d == nil || d.Shared == nil {
 		return fmt.Errorf("Shared store is required for ProjectConfiguration migration")
 	}
-	state, err := d.projectConfigurationMigrationState(ctx)
+	state, err := d.projectConfigurationMigrationState(ctx, projectConfigurationRetiredFieldMigrationID)
 	if err != nil {
 		return err
 	}
 	if state == "complete" {
-		return nil
+		return d.MigrateGTWActivationPreflightProcedure(ctx)
 	}
 	if err := d.setSharedUpgradeMigrationState(ctx, projectConfigurationRetiredFieldMigrationID, "in_progress"); err != nil {
 		return err
@@ -203,5 +203,5 @@ func (d *Databases) MigrateProjectConfigurationToCanonical(ctx context.Context) 
 	if err := d.setSharedUpgradeMigrationState(ctx, projectConfigurationRetiredFieldMigrationID, "complete"); err != nil {
 		return err
 	}
-	return nil
+	return d.MigrateGTWActivationPreflightProcedure(ctx)
 }

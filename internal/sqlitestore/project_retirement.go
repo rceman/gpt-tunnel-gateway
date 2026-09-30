@@ -405,8 +405,28 @@ func (d *Databases) HasProjectConfigurationRetirementSource(ctx context.Context,
 }
 
 func (d *Databases) ProjectConfigurationMigrationComplete(ctx context.Context) (bool, error) {
-	state, err := d.projectConfigurationMigrationState(ctx)
-	return state == "complete", err
+	state, err := d.projectConfigurationMigrationState(ctx, projectConfigurationRetiredFieldMigrationID)
+	if err != nil || state != "complete" {
+		return false, err
+	}
+	state, err = d.projectConfigurationMigrationState(ctx, projectConfigurationActivationPreflightMigrationID)
+	if err != nil {
+		return false, err
+	}
+	if state == "in_progress" {
+		return false, nil
+	}
+	if state == "complete" {
+		return true, nil
+	}
+	// The activation_preflight marker stays unset on hosts without the GTW
+	// self-host project; completeness then reduces to whether that
+	// configuration row exists yet.
+	rows, err := d.Shared.Query(ctx, `SELECT id FROM shared_project_configurations WHERE id=?`, "gpt-tunnel-gateway")
+	if err != nil {
+		return false, err
+	}
+	return len(rows.Rows) == 0, nil
 }
 
 func (d *Databases) MigrateLocalSessionProjectCoordinates(ctx context.Context) error {
