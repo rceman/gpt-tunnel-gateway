@@ -77,6 +77,67 @@ func (r Runner) PushTaskIntegrationCAS(ctx context.Context, p config.ProjectConf
 	return nil
 }
 
+// RemoteLaneHead resolves the configured remote's lane ref head without
+// updating any local tracking ref. exists is false when the remote ref is
+// absent; exactly one <sha>\t<ref> record is accepted otherwise.
+func (r Runner) RemoteLaneHead(ctx context.Context, p config.ProjectConfig, branch string) (head string, exists bool, err error) {
+	if err := model.ValidateBranch(branch); err != nil {
+		return "", false, err
+	}
+	ref := "refs/heads/" + branch
+	out, err := r.command(ctx, p.Root, false, "ls-remote", p.Remote, ref)
+	if err != nil {
+		return "", false, fmt.Errorf("remote lane head: %w", err)
+	}
+	trimmed := strings.TrimSpace(string(out))
+	if trimmed == "" {
+		return "", false, nil
+	}
+	lines := strings.Split(trimmed, "\n")
+	if len(lines) != 1 {
+		return "", false, fmt.Errorf("remote lane %q resolved ambiguously", branch)
+	}
+	fields := strings.Split(lines[0], "\t")
+	if len(fields) != 2 || fields[1] != ref || model.ValidateCommitSHA(fields[0]) != nil {
+		return "", false, fmt.Errorf("remote lane %q resolved ambiguously", branch)
+	}
+	return fields[0], true, nil
+}
+
+// ErrTaskLaneExpectedOldMismatch marks the conclusive push porcelain result
+// where the remote lane ref no longer holds the expected-old head. Opaque
+// transport failures never carry it.
+var ErrTaskLaneExpectedOldMismatch = errors.New("Task lane expected-old mismatch")
+
+// PushTaskLaneCAS publishes the exact submitted lane commit to the
+// server-owned origin lane ref through one explicit expected-old
+// compare-and-swap. The --force-with-lease=<ref>:<expectedRemote> form is
+// required because rework and rebase submissions legitimately move the lane
+// ref past its previous head; expectedRemote == "" requires the remote ref to
+// be absent, so a first submission can never overwrite an existing lane ref.
+// There is no implicit lease, no tracking-derived expectation, no fallback,
+// and no retry.
+func (r Runner) PushTaskLaneCAS(ctx context.Context, p config.ProjectConfig, branch, expectedRemote, commit string) error {
+	if err := model.ValidateBranch(branch); err != nil {
+		return err
+	}
+	if expectedRemote != "" && model.ValidateCommitSHA(expectedRemote) != nil {
+		return fmt.Errorf("invalid Task lane expected remote head")
+	}
+	if model.ValidateCommitSHA(commit) != nil {
+		return fmt.Errorf("invalid Task lane commit")
+	}
+	ref := "refs/heads/" + branch
+	out, err := r.command(ctx, p.Root, false, "push", "--porcelain", "--force-with-lease="+ref+":"+expectedRemote, p.Remote, commit+":"+ref)
+	if err != nil {
+		if taskIntegrationPushStaleInfo(out, commit+":"+ref) {
+			return fmt.Errorf("%w: %v", ErrTaskLaneExpectedOldMismatch, err)
+		}
+		return fmt.Errorf("Task lane compare-and-swap failed: %w", err)
+	}
+	return nil
+}
+
 // ErrTaskIntegrationExpectedOldMismatch marks the conclusive push porcelain
 // result where the remote ref no longer holds the expected-old base. Opaque
 // transport failures never carry it.

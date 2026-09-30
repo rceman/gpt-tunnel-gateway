@@ -39,6 +39,17 @@ func (s *Service) taskExecutionReviewSelection(ctx context.Context, projectID, k
 	if err != nil || !clean || branch != state.Branch || actual != phase.Head {
 		return sqlitestore.TaskExecutionPhase{}, "", fmt.Errorf("assigned Task lane must be clean on the submitted head")
 	}
+	project, err := s.EffectiveProjectConfig(projectID)
+	if err != nil {
+		return sqlitestore.TaskExecutionPhase{}, "", err
+	}
+	remote, remoteExists, err := s.Git.RemoteLaneHead(ctx, project, phase.Branch)
+	if err != nil {
+		return sqlitestore.TaskExecutionPhase{}, "", err
+	}
+	if !remoteExists || remote != phase.Head {
+		return sqlitestore.TaskExecutionPhase{}, "", fmt.Errorf("origin Task lane does not hold the submitted head")
+	}
 	comparisonBase := state.BaseHead
 	ancestryBase := state.BaseHead
 	if stage != "code" {

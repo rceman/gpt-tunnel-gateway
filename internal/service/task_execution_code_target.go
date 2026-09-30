@@ -77,6 +77,23 @@ func (s *Service) resolveExactTaskCodeTarget(ctx context.Context, projectID, sel
 			Current:  state.Worktree,
 		}
 	}
+	submitted, submittedErr := s.taskSelectorHeadIsSubmitted(ctx, *state, selectorHead)
+	if submittedErr != nil {
+		return localCodeTarget{}, submittedErr
+	}
+	if submitted {
+		remote, remoteExists, remoteErr := s.Git.RemoteLaneHead(ctx, project, state.Branch)
+		if remoteErr != nil {
+			return localCodeTarget{}, remoteErr
+		}
+		if !remoteExists || remote != selectorHead {
+			return localCodeTarget{}, &CodeSelectorError{
+				Kind:     CodeSelectorStale,
+				Selector: selector,
+				Current:  state.Worktree,
+			}
+		}
+	}
 	if !live && !status.Clean {
 		return localCodeTarget{}, fmt.Errorf("worktree selector %q is dirty; set live=true for bounded observation", selector)
 	}

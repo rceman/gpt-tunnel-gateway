@@ -86,9 +86,26 @@ func (s *Service) submitTaskExecution(ctx context.Context, projectID, key, stage
 			return TaskExecutionPublicOutput{}, fmt.Errorf("assigned Worker lane is not usable: %w", resolveErr)
 		}
 	}
-	actual, branch, clean, err := s.taskExecutionLaneHead(ctx, projectID, key, state)
-	if err != nil || !clean || branch != state.Branch {
-		return TaskExecutionPublicOutput{}, fmt.Errorf("assigned Task worktree must be clean on its server-owned branch")
+	lane, laneErr := s.taskExecutionLane(projectID, key, state)
+	if laneErr != nil {
+		return TaskExecutionPublicOutput{}, laneErr
+	}
+	actual, branch, clean, err := s.Git.CurrentHead(ctx, lane)
+	if err != nil || branch != state.Branch {
+		return TaskExecutionPublicOutput{}, fmt.Errorf("assigned Task worktree must be on its server-owned branch")
+	}
+	if !clean {
+		if _, commitErr := s.Git.CommitCandidate(ctx, lane, "Task "+key+" "+stage+" submission"); commitErr != nil {
+			return TaskExecutionPublicOutput{}, fmt.Errorf("finalize Task submission commit: %w", commitErr)
+		}
+		actual, branch, clean, err = s.Git.CurrentHead(ctx, lane)
+		if err != nil || !clean || branch != state.Branch {
+			return TaskExecutionPublicOutput{}, fmt.Errorf("finalized Task submission commit is not clean on its server-owned branch")
+		}
+	}
+	candidateTree, treeErr := s.Git.TreeID(ctx, lane)
+	if treeErr != nil {
+		return TaskExecutionPublicOutput{}, treeErr
 	}
 	state.Head = actual
 	now := time.Now().UTC()
@@ -131,6 +148,13 @@ func (s *Service) submitTaskExecution(ctx context.Context, projectID, key, stage
 	}
 	beforePayload := taskLifecycleHookPayload(projectID, key, AgentSessionID(ctx), durableMutationOperationID(ctx), stage, state.TaskRevision, state.ExecutionRevision-1, actual, "", "", "", "", "")
 	if err := s.runTaskLifecycleProcedureHook(ctx, model.HookPreTaskSubmit, "before", beforePayload, "", nil, ""); err != nil {
+		return TaskExecutionPublicOutput{}, err
+	}
+	project, err := s.EffectiveProjectConfig(projectID)
+	if err != nil {
+		return TaskExecutionPublicOutput{}, err
+	}
+	if err := s.publishTaskSubmissionLane(ctx, project, lane, state, actual, candidateTree); err != nil {
 		return TaskExecutionPublicOutput{}, err
 	}
 	if err := s.Durability.TransitionTaskExecutionState(ctx, state, state.ExecutionRevision-1, phase); err != nil {
