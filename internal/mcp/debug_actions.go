@@ -199,6 +199,31 @@ func (s *Server) registerDebugActions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
+		Path:         "debug/task-bootstrap-reconcile",
+		Description:  "Reconcile the exact Planner-authorized already-landed TSK677 bootstrap without creating normal lifecycle receipts.",
+		InputSchema:  debugTaskBootstrapReconcileInputSchema(),
+		OutputSchema: debugTaskBootstrapReconcileOutputSchema(),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  true,
+		},
+		AuthorityRole:    actionRolePlannerOrLead,
+		LocalReceiptOnly: true,
+		SessionBound:     true,
+		SessionRequired:  true,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in struct {
+				Key string `json:"key"`
+			}
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			return s.Service.DebugReconcileBootstrappedTask(ctx, in.Key)
+		},
+	}); err != nil {
+		return err
+	}
+	if err := s.RegisterGenericAction(GenericAction{
 		Path:        "debug/project-configuration-migrate",
 		Description: "Run the deferred ProjectConfiguration v2-to-v3 migration after explicit retirements.",
 		InputSchema: debugStatusInputSchema(),
@@ -359,6 +384,29 @@ func debugProjectRetireInputSchema() map[string]any {
 	reason := str("Bounded reason recorded as portable retirement evidence.")
 	reason["minLength"], reason["maxLength"] = 1, 512
 	return obj(map[string]any{"key": key, "reason": reason}, "key", "reason")
+}
+
+func debugTaskBootstrapReconcileInputSchema() map[string]any {
+	key := str("Only the exact Planner-authorized bootstrap Task may be reconciled.")
+	key["enum"] = []any{"GTW-TSK677"}
+	return obj(map[string]any{"key": key}, "key")
+}
+
+func debugTaskBootstrapReconcileOutputSchema() map[string]any {
+	key := outputString()
+	key["enum"] = []any{"GTW-TSK677"}
+	head := outputString()
+	head["minLength"], head["maxLength"], head["pattern"] = 8, 8, `^[0-9a-f]{8}$`
+	evidence := outputArray(outputString())
+	evidence["maxItems"] = 3
+	return closedOutput(map[string]any{
+		"key":                key,
+		"status":             outputEnum("integrated"),
+		"execution_revision": integer("Exact reconciled execution revision.", 3, 3),
+		"integration_head":   head,
+		"evidence":           evidence,
+		"already_reconciled": outputBoolean(),
+	}, "key", "status", "execution_revision", "integration_head", "evidence", "already_reconciled")
 }
 
 func debugTailOutputSchema() map[string]any {

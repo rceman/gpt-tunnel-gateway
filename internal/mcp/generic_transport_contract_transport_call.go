@@ -53,7 +53,7 @@ func unboundActionAllowed(path string) bool {
 		return true
 	}
 	switch path {
-	case "runtime/status", "project/list", "session/list", "session/info", "session/end", "debug/status", "debug/prompt", "debug/activate", "debug/project-retire", "debug/project-configuration-migrate":
+	case "runtime/status", "project/list", "session/list", "session/info", "session/end", "debug/status", "debug/prompt", "debug/activate", "debug/project-retire", "debug/project-configuration-migrate", "debug/task-bootstrap-reconcile":
 		return true
 	default:
 		return false

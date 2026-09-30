@@ -1618,6 +1618,66 @@ domains:
                 - lines
                 - exit_code
             type: object
+        - description: Reconcile the exact Planner-authorized already-landed TSK677 bootstrap without creating normal lifecycle receipts.
+          input:
+            additional_properties: false
+            properties:
+                key:
+                    description: Only the exact Planner-authorized bootstrap Task may be reconciled.
+                    enum:
+                        - GTW-TSK677
+                    ref: EntityKeyAndReference
+            required:
+                - key
+            type: object
+          metadata:
+            annotations:
+                destructive: true
+                idempotent: true
+                open_world: false
+                read_only: false
+            selector: key
+            surface: debug
+          name: task-bootstrap-reconcile
+          output:
+            additional_properties: false
+            properties:
+                already_reconciled:
+                    type: boolean
+                evidence:
+                    items:
+                        enum:
+                            - GTW-JRN8
+                            - GTW-JRN9
+                            - GTW-JRN10
+                        type: string
+                    max_items: 3
+                    min_items: 3
+                    type: array
+                execution_revision:
+                    maximum: 3
+                    minimum: 3
+                    type: integer
+                integration_head:
+                    max_length: 8
+                    min_length: 8
+                    ref: GitFingerprint
+                key:
+                    enum:
+                        - GTW-TSK677
+                    ref: EntityKeyAndReference
+                status:
+                    enum:
+                        - integrated
+                    type: string
+            required:
+                - key
+                - status
+                - execution_revision
+                - integration_head
+                - evidence
+                - already_reconciled
+            type: object
       name: debug
     - actions:
         - description: Append one contract-validated immutable entry to a journal stream.
