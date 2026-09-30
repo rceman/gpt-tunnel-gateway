@@ -143,6 +143,12 @@ func (s *Service) publishSharedOutboxEntry(ctx context.Context, entry sqlitestor
 	if !ok {
 		return fmt.Errorf("unsupported shared outbox entity %q", entry.EntityType)
 	}
+	if entry.ID == tsk668TrackAcceptOutboxID {
+		err := s.publishTSK668TrackAcceptOutbox(ctx, entry)
+		if !errors.Is(err, errTSK668TrackReconciliationNotApplicable) {
+			return err
+		}
+	}
 	if err := s.publishSharedRevisionOutbox(ctx, entry); err != nil && !errors.Is(err, errSharedOutboxNoop) {
 		return err
 	}
@@ -152,25 +158,25 @@ func (s *Service) publishSharedOutboxEntry(ctx context.Context, entry sqlitestor
 	return publisher(s, ctx, entry)
 }
 
-func (s *Service) publishSharedRevisionOutbox(ctx context.Context, entry sqlitestore.OutboxEntry) error {
+func (s *Service) sharedRevisionOutboxRecord(ctx context.Context, entry sqlitestore.OutboxEntry) (portableSharedRevision, bool, error) {
 	if s.Durability == nil || entry.EntityType == "relation" || entry.EntityType == "project_configuration" || entry.EntityType == "project_retirement" {
-		return nil
+		return portableSharedRevision{}, false, nil
 	}
 	var identity struct {
 		ProjectID string `json:"project_id"`
 	}
 	if err := json.Unmarshal(entry.Payload, &identity); err != nil || identity.ProjectID == "" {
-		return fmt.Errorf("invalid shared %s outbox payload: missing project identity", entry.EntityType)
+		return portableSharedRevision{}, false, fmt.Errorf("invalid shared %s outbox payload: missing project identity", entry.EntityType)
 	}
 	record, err := s.Durability.ReadSharedRevision(ctx, entry.EntityType, identity.ProjectID, entry.EntityID, entry.Revision)
 	if err != nil {
-		return err
+		return portableSharedRevision{}, false, err
 	}
 	if record.MutationKind == "" {
-		return nil
+		return portableSharedRevision{}, false, nil
 	}
 	if record.EntityID != entry.EntityID || record.ProjectID != identity.ProjectID || record.Revision != entry.Revision || record.Actor == "" || record.Reason == "" || !json.Valid(record.Payload) {
-		return fmt.Errorf("shared %s revision evidence conflicts with outbox", entry.EntityType)
+		return portableSharedRevision{}, false, fmt.Errorf("shared %s revision evidence conflicts with outbox", entry.EntityType)
 	}
 	portable := portableSharedRevision{
 		EntityType:    entry.EntityType,
@@ -185,55 +191,71 @@ func (s *Service) publishSharedRevisionOutbox(ctx context.Context, entry sqlites
 		RecordedAt:    record.RecordedAt,
 	}
 	if err := validatePortableRevisionPayload(portable); err != nil {
+		return portableSharedRevision{}, false, err
+	}
+	return portable, true, nil
+}
+
+func (s *Service) writeSharedRevisionOutbox(worktree string, portable portableSharedRevision) (string, bool, error) {
+	path := s.sharedRevisionPath(portable.ProjectID, portable.EntityType, portable.EntityID, portable.Revision)
+	var latest portableSharedRevision
+	if readErr := readWorktreeJSON(worktree, path, &latest); readErr == nil {
+		var latestPayload, expectedPayload bytes.Buffer
+		if latestPayloadErr := json.Compact(&latestPayload, latest.Payload); latestPayloadErr != nil {
+			return "", false, latestPayloadErr
+		}
+		if expectedPayloadErr := json.Compact(&expectedPayload, portable.Payload); expectedPayloadErr != nil {
+			return "", false, expectedPayloadErr
+		}
+		if latest.EntityType != portable.EntityType || latest.EntityID != portable.EntityID || latest.ProjectID != portable.ProjectID || latest.Revision != portable.Revision || latest.MutationKind != portable.MutationKind || latest.Actor != portable.Actor || latest.Reason != portable.Reason || latest.RecordedAt != portable.RecordedAt || !reflect.DeepEqual(latest.ChangedFields, portable.ChangedFields) || !bytes.Equal(latestPayload.Bytes(), expectedPayload.Bytes()) {
+			return "", false, fmt.Errorf("Hub shared revision evidence conflicts at %s", path)
+		}
+		return path, false, nil
+	} else if !IsNotFound(readErr) {
+		return "", false, readErr
+	}
+	if err := hub.WriteJSON(worktree, path, portable); err != nil {
+		return "", false, err
+	}
+	return path, true, nil
+}
+
+func (s *Service) publishSharedRevisionOutbox(ctx context.Context, entry sqlitestore.OutboxEntry) error {
+	portable, found, err := s.sharedRevisionOutboxRecord(ctx, entry)
+	if err != nil || !found {
 		return err
 	}
-	path := s.sharedRevisionPath(record.ProjectID, entry.EntityType, record.EntityID, record.Revision)
 	_, err = s.Hub.Transact(ctx, "", "gateway: publish Shared revision evidence", func(worktree string) ([]string, error) {
-		var latest portableSharedRevision
-		if readErr := readWorktreeJSON(worktree, path, &latest); readErr == nil {
-			var latestPayload, expectedPayload bytes.Buffer
-			if latestPayloadErr := json.Compact(&latestPayload, latest.Payload); latestPayloadErr != nil {
-				return nil, latestPayloadErr
-			}
-			if expectedPayloadErr := json.Compact(&expectedPayload, portable.Payload); expectedPayloadErr != nil {
-				return nil, expectedPayloadErr
-			}
-			if latest.EntityType != portable.EntityType || latest.EntityID != portable.EntityID || latest.ProjectID != portable.ProjectID || latest.Revision != portable.Revision || latest.MutationKind != portable.MutationKind || latest.Actor != portable.Actor || latest.Reason != portable.Reason || latest.RecordedAt != portable.RecordedAt || !reflect.DeepEqual(latest.ChangedFields, portable.ChangedFields) || !bytes.Equal(latestPayload.Bytes(), expectedPayload.Bytes()) {
-				return nil, fmt.Errorf("Hub shared revision evidence conflicts at %s", path)
-			}
-			return nil, errSharedOutboxNoop
-		} else if !IsNotFound(readErr) {
-			return nil, readErr
+		path, changed, writeErr := s.writeSharedRevisionOutbox(worktree, portable)
+		if writeErr != nil {
+			return nil, writeErr
 		}
-		if err := hub.WriteJSON(worktree, path, portable); err != nil {
-			return nil, err
+		if !changed {
+			return nil, errSharedOutboxNoop
 		}
 		return []string{path}, nil
 	})
 	return err
 }
 
-func (s *Service) publishSharedLifecycleEventsOutbox(ctx context.Context, entry sqlitestore.OutboxEntry) error {
+func (s *Service) sharedLifecycleOutboxEvents(ctx context.Context, entry sqlitestore.OutboxEntry) ([]portableSharedLifecycleEvent, error) {
 	if s.Durability == nil || entry.EntityType == "project_retirement" {
-		return nil
+		return nil, nil
 	}
 	switch entry.EntityType {
 	case "task", "adr", "rule", "milestone", "track":
 	default:
-		return nil
+		return nil, nil
 	}
 	var identity struct {
 		ProjectID string `json:"project_id"`
 	}
 	if err := json.Unmarshal(entry.Payload, &identity); err != nil || identity.ProjectID == "" {
-		return fmt.Errorf("invalid shared %s outbox payload: missing project identity", entry.EntityType)
+		return nil, fmt.Errorf("invalid shared %s outbox payload: missing project identity", entry.EntityType)
 	}
 	events, err := s.Durability.ListSharedLifecycleEvents(ctx, entry.EntityType, identity.ProjectID, entry.EntityID, sqlitestore.SharedLifecycleQueryMaxRows)
 	if err != nil {
-		return err
-	}
-	if len(events) == 0 {
-		return nil
+		return nil, err
 	}
 	portable := make([]portableSharedLifecycleEvent, 0, len(events))
 	for _, event := range events {
@@ -254,30 +276,46 @@ func (s *Service) publishSharedLifecycleEventsOutbox(ctx context.Context, entry 
 			RecordedAt:    event.RecordedAt.UTC().Format(time.RFC3339Nano),
 		}
 		if err := validatePortableLifecycleEvent(item, identity.ProjectID); err != nil {
-			return err
+			return nil, err
 		}
 		portable = append(portable, item)
 	}
+	return portable, nil
+}
+
+func (s *Service) writeSharedLifecycleOutboxEvents(worktree string, events []portableSharedLifecycleEvent) ([]string, error) {
+	changed := make([]string, 0, len(events))
+	for _, event := range events {
+		path := s.sharedLifecycleEventPath(event.ProjectID, event.EntityType, event.EntityID, event.OperationID)
+		if path == "../invalid-shared-lifecycle-event" {
+			return nil, fmt.Errorf("invalid Shared lifecycle event path")
+		}
+		var latest portableSharedLifecycleEvent
+		if readErr := readWorktreeJSON(worktree, path, &latest); readErr == nil {
+			if samePortableLifecycleEvent(latest, event) {
+				continue
+			}
+			return nil, fmt.Errorf("Hub Shared lifecycle evidence conflicts at %s", path)
+		} else if !IsNotFound(readErr) {
+			return nil, readErr
+		}
+		if err := hub.WriteJSON(worktree, path, event); err != nil {
+			return nil, err
+		}
+		changed = append(changed, path)
+	}
+	return changed, nil
+}
+
+func (s *Service) publishSharedLifecycleEventsOutbox(ctx context.Context, entry sqlitestore.OutboxEntry) error {
+	portable, err := s.sharedLifecycleOutboxEvents(ctx, entry)
+	if err != nil || len(portable) == 0 {
+		return err
+	}
 	_, err = s.Hub.Transact(ctx, "", "gateway: publish Shared lifecycle evidence", func(worktree string) ([]string, error) {
-		changed := make([]string, 0, len(portable))
-		for _, event := range portable {
-			path := s.sharedLifecycleEventPath(event.ProjectID, event.EntityType, event.EntityID, event.OperationID)
-			if path == "../invalid-shared-lifecycle-event" {
-				return nil, fmt.Errorf("invalid Shared lifecycle event path")
-			}
-			var latest portableSharedLifecycleEvent
-			if readErr := readWorktreeJSON(worktree, path, &latest); readErr == nil {
-				if samePortableLifecycleEvent(latest, event) {
-					continue
-				}
-				return nil, fmt.Errorf("Hub Shared lifecycle evidence conflicts at %s", path)
-			} else if !IsNotFound(readErr) {
-				return nil, readErr
-			}
-			if err := hub.WriteJSON(worktree, path, event); err != nil {
-				return nil, err
-			}
-			changed = append(changed, path)
+		changed, writeErr := s.writeSharedLifecycleOutboxEvents(worktree, portable)
+		if writeErr != nil {
+			return nil, writeErr
 		}
 		if len(changed) == 0 {
 			return nil, errSharedOutboxNoop
