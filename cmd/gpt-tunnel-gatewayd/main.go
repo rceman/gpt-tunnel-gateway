@@ -17,6 +17,7 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/controller"
 	debugdomain "github.com/rceman/gpt-tunnel-gateway/internal/debug"
+	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/mcp"
 	"github.com/rceman/gpt-tunnel-gateway/internal/releaseartifacts"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
@@ -209,29 +210,54 @@ func postReadyHubEnsureContext(svc *service.Service, ctx context.Context, phase 
 		startupErrorForPhase("POST_READY_HUB_ENSURE", err)
 		return err
 	}
-	phase("POST_READY_PROJECT_RETIREMENT_SYNC")
-	if err := svc.SyncProjectRetirements(ctx); err != nil {
-		startupErrorForPhase("POST_READY_PROJECT_RETIREMENT_SYNC", err)
+	// One pinned fresh snapshot serves every Hub read phase of this
+	// convergence attempt so a single fetch plus lock acquisition is the
+	// coherent consistency point. It must close before the migration's write
+	// transaction, which acquires the same repository lock.
+	phase("POST_READY_HUB_READ_SNAPSHOT")
+	snapshot, err := svc.Hub.FreshReadSnapshot(ctx)
+	if err != nil {
+		startupErrorForPhase("POST_READY_HUB_READ_SNAPSHOT", err)
 		return err
 	}
-	if svc.Config.Debug.Enabled {
-		complete, err := svc.Durability.ProjectConfigurationMigrationComplete(ctx)
+	readCtx := hub.WithReadSnapshot(ctx, snapshot)
+	plan, err := func() (*service.HubProjectConfigurationMigrationPlan, error) {
+		defer func() { _ = snapshot.Close() }()
+		phase("POST_READY_PROJECT_RETIREMENT_SYNC")
+		if err := svc.SyncProjectRetirements(readCtx); err != nil {
+			startupErrorForPhase("POST_READY_PROJECT_RETIREMENT_SYNC", err)
+			return nil, err
+		}
+		if svc.Config.Debug.Enabled {
+			complete, err := svc.Durability.ProjectConfigurationMigrationComplete(ctx)
+			if err != nil {
+				startupErrorForPhase("POST_READY_PROJECT_CONFIGURATION_MIGRATION", err)
+				return nil, err
+			}
+			if !complete {
+				return nil, service.ErrProjectConfigurationMigrationDeferred
+			}
+		} else {
+			phase("POST_READY_PROJECT_CONFIGURATION_MIGRATION")
+			if err := svc.Durability.MigrateProjectConfigurationToCanonical(ctx); err != nil {
+				startupErrorForPhase("POST_READY_PROJECT_CONFIGURATION_MIGRATION", err)
+				return nil, err
+			}
+		}
+		phase("POST_READY_HUB_PROJECT_CONFIGURATION_MIGRATION")
+		plan, err := svc.PlanHubProjectConfigurationMigration(readCtx)
 		if err != nil {
-			startupErrorForPhase("POST_READY_PROJECT_CONFIGURATION_MIGRATION", err)
-			return err
+			startupErrorForPhase("POST_READY_HUB_PROJECT_CONFIGURATION_MIGRATION", err)
+			return nil, err
 		}
-		if !complete {
-			return service.ErrProjectConfigurationMigrationDeferred
-		}
-	} else {
-		phase("POST_READY_PROJECT_CONFIGURATION_MIGRATION")
-		if err := svc.Durability.MigrateProjectConfigurationToCanonical(ctx); err != nil {
-			startupErrorForPhase("POST_READY_PROJECT_CONFIGURATION_MIGRATION", err)
-			return err
-		}
+		return plan, nil
+	}()
+	if err != nil {
+		return err
 	}
-	phase("POST_READY_HUB_PROJECT_CONFIGURATION_MIGRATION")
-	if err := svc.MigrateHubProjectConfigurations(ctx); err != nil {
+	// The write transaction re-pins the remote revision under its own lock
+	// and re-verifies every planned payload before committing.
+	if err := svc.ApplyHubProjectConfigurationMigration(ctx, plan); err != nil {
 		startupErrorForPhase("POST_READY_HUB_PROJECT_CONFIGURATION_MIGRATION", err)
 		return err
 	}
@@ -240,23 +266,39 @@ func postReadyHubEnsureContext(svc *service.Service, ctx context.Context, phase 
 
 func postReadyHubStateCheckContext(svc *service.Service, ctx context.Context, phase func(string)) error {
 	phase("POST_READY_STATE_CHECK")
-	state, err := svc.StateCheck(ctx)
+	// The post-convergence check reads per-project Hub retirement evidence;
+	// one pinned snapshot bounds that to a single fetch and lock acquisition
+	// instead of one per project.
+	snapshot, err := svc.Hub.FreshReadSnapshot(ctx)
 	if err != nil {
 		startupErrorForPhase("POST_READY_STATE_CHECK", err)
-		phase("HUB_SYNC_DEGRADED")
 		return err
+	}
+	state, err := svc.StateCheck(hub.WithReadSnapshot(ctx, snapshot))
+	closeErr := snapshot.Close()
+	if err != nil {
+		startupErrorForPhase("POST_READY_STATE_CHECK", err)
+		return err
+	}
+	if closeErr != nil {
+		startupErrorForPhase("POST_READY_STATE_CHECK", closeErr)
+		return closeErr
 	}
 	if !state.Valid {
 		err = fmt.Errorf("durable state validation failed: %s", summarizeStateIssues(state.Issues))
 		startupErrorForPhase("POST_READY_STATE_CHECK", err)
 		phase("HUB_SYNC_DEGRADED")
-		return err
+		return terminalHubSyncError{err: err}
 	}
 	phase("HUB_SYNC_READY")
 	return nil
 }
 
-var postReadyHubAttemptTimeout = 20 * time.Second
+// The attempt budget covers repository-lock acquisition, the Hub fetch and
+// pinned-snapshot reads, migration/bootstrap work, and the state check; it
+// stays well above their combined bounded cost so an attempt does not
+// systematically self-expire under ordinary outbox contention.
+var postReadyHubAttemptTimeout = 60 * time.Second
 
 var postReadyHubRetryDelays = []time.Duration{
 	100 * time.Millisecond,
@@ -268,23 +310,43 @@ var postReadyHubRetryDelays = []time.Duration{
 	8 * time.Second,
 }
 
+// terminalHubSyncError marks permanent semantic failures — invalid durable
+// state or irreconcilable Hub/durable conflicts — that no retry can heal.
+// Operational failures (lock contention, fetch, timeout, transient store
+// errors) stay retryable.
+type terminalHubSyncError struct{ err error }
+
+func (e terminalHubSyncError) Error() string { return e.err.Error() }
+func (e terminalHubSyncError) Unwrap() error { return e.err }
+
+func postReadyHubSyncRetryable(err error) bool {
+	var terminal terminalHubSyncError
+	if errors.As(err, &terminal) {
+		return false
+	}
+	return !errors.Is(err, sqlitestore.ErrProjectRetirementConflict)
+}
+
 func postReadyHubSyncLoop(parent context.Context, phase func(string), bootstrap func(context.Context) error, stateCheck func(context.Context) error) error {
 	for attemptNumber := 1; ; attemptNumber++ {
+		phase(fmt.Sprintf("POST_READY_HUB_ATTEMPT_%d", attemptNumber))
 		attemptCtx, cancel := context.WithTimeout(parent, postReadyHubAttemptTimeout)
 		err := bootstrap(attemptCtx)
 		if err == nil {
-			stateErr := stateCheck(attemptCtx)
-			cancel()
-			if stateErr != nil {
-				return stateErr
-			}
-			return nil
+			err = stateCheck(attemptCtx)
 		}
 		cancel()
+		if err == nil {
+			return nil
+		}
 		if parent.Err() != nil {
 			return err
 		}
-		startupErrorForPhase("POST_READY_HUB_SYNC_ATTEMPT", err)
+		if !postReadyHubSyncRetryable(err) {
+			phase("HUB_SYNC_DEGRADED")
+			return err
+		}
+		startupErrorForPhase(fmt.Sprintf("POST_READY_HUB_SYNC_ATTEMPT_%d", attemptNumber), err)
 		phase(fmt.Sprintf("POST_READY_HUB_RETRY_WAIT_%d", attemptNumber))
 		timer := time.NewTimer(postReadyHubRetryDelays[min(attemptNumber-1, len(postReadyHubRetryDelays)-1)])
 		select {

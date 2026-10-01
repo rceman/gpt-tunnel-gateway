@@ -16,23 +16,46 @@ const projectConfigurationHubMigrationMaxProjects = 4096
 
 var errHubProjectConfigurationMigrationNoChanges = errors.New("Hub ProjectConfiguration migration made no changes")
 
+// HubProjectConfigurationMigrationPlan is the read-only planning result of
+// one Hub ProjectConfiguration migration. Its Hub reads can share a pinned
+// ReadSnapshot consistency point; the write boundary stays a separate
+// bounded transaction.
+type HubProjectConfigurationMigrationPlan struct {
+	projects       []model.Project
+	policies       map[string]*model.ProjectWorkflowPolicy
+	policyPayloads map[string][]byte
+	needed         bool
+}
+
 func (s *Service) MigrateHubProjectConfigurations(ctx context.Context) error {
+	plan, err := s.PlanHubProjectConfigurationMigration(ctx)
+	if err != nil {
+		return err
+	}
+	return s.ApplyHubProjectConfigurationMigration(ctx, plan)
+}
+
+// PlanHubProjectConfigurationMigration performs the read phase of Hub
+// ProjectConfiguration migration: project enumeration and payload reads. The
+// ctx may carry a pinned hub.ReadSnapshot so the whole convergence attempt
+// shares one fresh consistency point instead of fetching per project.
+func (s *Service) PlanHubProjectConfigurationMigration(ctx context.Context) (*HubProjectConfigurationMigrationPlan, error) {
 	projects, err := s.ProjectList(ctx)
 	if err != nil {
-		return fmt.Errorf("list Hub projects for ProjectConfiguration migration: %w", err)
+		return nil, fmt.Errorf("list Hub projects for ProjectConfiguration migration: %w", err)
 	}
 	if len(projects) > projectConfigurationHubMigrationMaxProjects {
-		return fmt.Errorf("Hub ProjectConfiguration migration exceeds bounded project maximum")
+		return nil, fmt.Errorf("Hub ProjectConfiguration migration exceeds bounded project maximum")
 	}
 	seen := make(map[string]struct{}, len(projects))
 	policies := make(map[string]*model.ProjectWorkflowPolicy, len(projects))
 	policyPayloads := make(map[string][]byte, len(projects))
 	for _, project := range projects {
 		if err := model.ValidateProjectIdentifier(project.ID); err != nil {
-			return fmt.Errorf("invalid Hub project identity in ProjectConfiguration migration")
+			return nil, fmt.Errorf("invalid Hub project identity in ProjectConfiguration migration")
 		}
 		if _, exists := seen[project.ID]; exists {
-			return fmt.Errorf("duplicate Hub project identity in ProjectConfiguration migration")
+			return nil, fmt.Errorf("duplicate Hub project identity in ProjectConfiguration migration")
 		}
 		seen[project.ID] = struct{}{}
 		if s.Durability == nil {
@@ -40,12 +63,12 @@ func (s *Service) MigrateHubProjectConfigurations(ctx context.Context) error {
 			if err := s.Hub.ReadJSON(ctx, s.workflowPolicyPath(project.ID), &policyRaw); err == nil {
 				policy, canonical, err := migrateHubWorkflowPolicyPayload(project.ID, policyRaw)
 				if err != nil {
-					return fmt.Errorf("migrate Hub ProjectWorkflowPolicy %q: %w", project.ID, err)
+					return nil, fmt.Errorf("migrate Hub ProjectWorkflowPolicy %q: %w", project.ID, err)
 				}
 				policies[project.ID] = &policy
 				policyPayloads[project.ID] = canonical
 			} else if !IsNotFound(err) {
-				return fmt.Errorf("read Hub ProjectWorkflowPolicy %q: %w", project.ID, err)
+				return nil, fmt.Errorf("read Hub ProjectWorkflowPolicy %q: %w", project.ID, err)
 			}
 		}
 		var configurationRaw json.RawMessage
@@ -53,64 +76,76 @@ func (s *Service) MigrateHubProjectConfigurations(ctx context.Context) error {
 			if IsNotFound(err) {
 				continue
 			}
-			return fmt.Errorf("read Hub ProjectConfiguration %q: %w", project.ID, err)
+			return nil, fmt.Errorf("read Hub ProjectConfiguration %q: %w", project.ID, err)
 		}
 		if sqlitestore.ProjectConfigurationPayloadRequiresWorkflowPolicy(configurationRaw) && policies[project.ID] == nil {
 			if s.Durability != nil {
 				policy, err := s.ProjectWorkflowPolicyRead(ctx, project.ID)
 				if err != nil {
-					return fmt.Errorf("read canonical ProjectWorkflowPolicy for %q: %w", project.ID, err)
+					return nil, fmt.Errorf("read canonical ProjectWorkflowPolicy for %q: %w", project.ID, err)
 				}
 				policies[project.ID] = &policy
 			} else {
-				return fmt.Errorf("canonical Hub ProjectWorkflowPolicy is missing for %q", project.ID)
+				return nil, fmt.Errorf("canonical Hub ProjectWorkflowPolicy is missing for %q", project.ID)
 			}
 		}
 	}
-	migrationNeeded := false
-	for _, project := range projects {
+	plan := &HubProjectConfigurationMigrationPlan{
+		projects:       projects,
+		policies:       policies,
+		policyPayloads: policyPayloads,
+	}
+	for _, project := range plan.projects {
 		var raw json.RawMessage
 		if err := s.Hub.ReadJSON(ctx, s.projectConfigurationPath(project.ID), &raw); err != nil {
 			if IsNotFound(err) {
 				continue
 			}
-			return fmt.Errorf("read Hub ProjectConfiguration %q: %w", project.ID, err)
+			return nil, fmt.Errorf("read Hub ProjectConfiguration %q: %w", project.ID, err)
 		}
-		_, canonical, err := migrateHubProjectConfigurationPayload(project.ID, raw, policies[project.ID])
+		_, canonical, err := migrateHubProjectConfigurationPayload(project.ID, raw, plan.policies[project.ID])
 		if err != nil {
-			return fmt.Errorf("migrate Hub ProjectConfiguration %q: %w", project.ID, err)
+			return nil, fmt.Errorf("migrate Hub ProjectConfiguration %q: %w", project.ID, err)
 		}
 		var compact bytes.Buffer
 		if err := json.Compact(&compact, raw); err != nil {
-			return fmt.Errorf("compact Hub ProjectConfiguration %q: %w", project.ID, err)
+			return nil, fmt.Errorf("compact Hub ProjectConfiguration %q: %w", project.ID, err)
 		}
 		if !bytes.Equal(compact.Bytes(), canonical) {
-			migrationNeeded = true
+			plan.needed = true
 		}
 	}
-	for projectID, expectedCanonical := range policyPayloads {
+	for projectID, expectedCanonical := range plan.policyPayloads {
 		var raw json.RawMessage
 		if err := s.Hub.ReadJSON(ctx, s.workflowPolicyPath(projectID), &raw); err != nil {
-			return fmt.Errorf("read Hub ProjectWorkflowPolicy %q: %w", projectID, err)
+			return nil, fmt.Errorf("read Hub ProjectWorkflowPolicy %q: %w", projectID, err)
 		}
 		_, canonical, err := migrateHubWorkflowPolicyPayload(projectID, raw)
 		if err != nil || !bytes.Equal(canonical, expectedCanonical) {
-			return fmt.Errorf("Hub ProjectWorkflowPolicy changed during migration")
+			return nil, fmt.Errorf("Hub ProjectWorkflowPolicy changed during migration")
 		}
 		var compact bytes.Buffer
 		if err := json.Compact(&compact, raw); err != nil {
-			return err
+			return nil, err
 		}
 		if !bytes.Equal(compact.Bytes(), canonical) {
-			migrationNeeded = true
+			plan.needed = true
 		}
 	}
-	if !migrationNeeded {
+	return plan, nil
+}
+
+// ApplyHubProjectConfigurationMigration commits a previously planned
+// migration in one bounded Hub transaction. The transaction re-reads the
+// worktree under the repository lock and fails closed when the planned
+// canonical payloads drifted, so a stale plan is safe.
+func (s *Service) ApplyHubProjectConfigurationMigration(ctx context.Context, plan *HubProjectConfigurationMigrationPlan) error {
+	if plan == nil || !plan.needed {
 		return nil
 	}
-	_, err = s.Hub.Transact(ctx, "", "gateway: migrate Hub ProjectConfigurations", func(worktree string) ([]string, error) {
-		changed := make([]string, 0, len(projects))
-		for _, project := range projects {
+	_, err := s.Hub.Transact(ctx, "", "gateway: migrate Hub ProjectConfigurations", func(worktree string) ([]string, error) {
+		changed := make([]string, 0, len(plan.projects))
+		for _, project := range plan.projects {
 			path := s.projectConfigurationPath(project.ID)
 			var raw json.RawMessage
 			if err := readWorktreeJSON(worktree, path, &raw); err != nil {
@@ -119,7 +154,7 @@ func (s *Service) MigrateHubProjectConfigurations(ctx context.Context) error {
 				}
 				return nil, fmt.Errorf("read Hub ProjectConfiguration %q: %w", project.ID, err)
 			}
-			configuration, canonical, err := migrateHubProjectConfigurationPayload(project.ID, raw, policies[project.ID])
+			configuration, canonical, err := migrateHubProjectConfigurationPayload(project.ID, raw, plan.policies[project.ID])
 			if err != nil {
 				return nil, fmt.Errorf("migrate Hub ProjectConfiguration %q: %w", project.ID, err)
 			}
@@ -135,7 +170,7 @@ func (s *Service) MigrateHubProjectConfigurations(ctx context.Context) error {
 			}
 			changed = append(changed, path)
 		}
-		for projectID, expectedCanonical := range policyPayloads {
+		for projectID, expectedCanonical := range plan.policyPayloads {
 			path := s.workflowPolicyPath(projectID)
 			var latestRaw json.RawMessage
 			if err := readWorktreeJSON(worktree, path, &latestRaw); err != nil {
