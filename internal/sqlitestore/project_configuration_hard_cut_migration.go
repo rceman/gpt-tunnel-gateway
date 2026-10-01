@@ -207,8 +207,10 @@ func (d *Databases) MigrateProjectConfigurationToCanonical(ctx context.Context) 
 }
 
 // migrateGTWDeliveryProcedures installs the canonical GTW delivery
-// Procedures in order: the disposable exact-source preflight, the live
-// activation that reuses it, then the accepted-authority production release.
+// Procedures in order — the disposable exact-source preflight, the live
+// activation that reuses it, then the accepted-authority production release —
+// and converges their installed schemas to canonical shape under a separate
+// marker so hosts whose install markers already completed still reconcile.
 func (d *Databases) migrateGTWDeliveryProcedures(ctx context.Context) error {
 	if err := d.MigrateGTWActivationPreflightProcedure(ctx); err != nil {
 		return err
@@ -216,5 +218,8 @@ func (d *Databases) migrateGTWDeliveryProcedures(ctx context.Context) error {
 	if err := d.MigrateGTWActivateLocalProcedure(ctx); err != nil {
 		return err
 	}
-	return d.MigrateGTWReleaseProdProcedure(ctx)
+	if err := d.MigrateGTWReleaseProdProcedure(ctx); err != nil {
+		return err
+	}
+	return d.MigrateGTWProcedureSchemas(ctx)
 }
