@@ -70,7 +70,7 @@ func (d *Databases) MigrateProjectConfigurationToCanonical(ctx context.Context) 
 		return err
 	}
 	if state == "complete" {
-		return d.MigrateGTWActivationPreflightProcedure(ctx)
+		return d.migrateGTWActivationProcedures(ctx)
 	}
 	if err := d.setSharedUpgradeMigrationState(ctx, projectConfigurationRetiredFieldMigrationID, "in_progress"); err != nil {
 		return err
@@ -203,5 +203,15 @@ func (d *Databases) MigrateProjectConfigurationToCanonical(ctx context.Context) 
 	if err := d.setSharedUpgradeMigrationState(ctx, projectConfigurationRetiredFieldMigrationID, "complete"); err != nil {
 		return err
 	}
-	return d.MigrateGTWActivationPreflightProcedure(ctx)
+	return d.migrateGTWActivationProcedures(ctx)
+}
+
+// migrateGTWActivationProcedures installs the canonical GTW activation
+// Procedures in order: the disposable exact-source preflight first, then the
+// live activation that reuses it.
+func (d *Databases) migrateGTWActivationProcedures(ctx context.Context) error {
+	if err := d.MigrateGTWActivationPreflightProcedure(ctx); err != nil {
+		return err
+	}
+	return d.MigrateGTWActivateLocalProcedure(ctx)
 }
