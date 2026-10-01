@@ -29,7 +29,7 @@ func TestTSK598FrozenActionContractsAndRegisteredHandlers(t *testing.T) {
 		want[path] = "normal"
 	}
 	debugActions := append(append([]string{}, inventory.ConditionalDebug.Keep...), inventory.ConditionalDebug.Change...)
-	debugActions = append(debugActions, "debug/project-retire", "debug/project-configuration-migrate", "debug/task-bootstrap-reconcile")
+	debugActions = append(debugActions, "debug/project-retire", "debug/project-configuration-migrate", "debug/task-bootstrap-reconcile", "debug/task-pre-execution-reconcile")
 	for _, path := range debugActions {
 		if _, exists := want[path]; exists {
 			t.Fatalf("duplicate debug inventory action %q", path)

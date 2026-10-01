@@ -279,3 +279,28 @@ func (d *Databases) TransitionTaskExecutionState(ctx context.Context, state mode
 	})
 	return err
 }
+
+// CreateTaskExecutionStateWithPhase atomically creates a Task execution state
+// and its first phase event. It exists for the bounded pre-execution
+// reconciliation path that records an already-landed Task which never had a
+// current-model execution; the phase event explicitly carries the historical
+// evidence instead of fabricating lifecycle receipts.
+func (d *Databases) CreateTaskExecutionStateWithPhase(ctx context.Context, state model.TaskExecutionState, phase TaskExecutionPhase) error {
+	if d == nil || d.Local == nil {
+		return fmt.Errorf("local store is unavailable")
+	}
+	if err := model.ValidateTaskExecutionState(state); err != nil {
+		return err
+	}
+	if phase.TaskID != state.TaskID || phase.ProjectID != state.ProjectID || phase.ExecutionRevision != state.ExecutionRevision || phase.Branch != state.Branch || phase.TaskRevisionSHA256 != state.TaskRevisionSHA256 || (phase.Stage != "integration" && phase.Head != state.Head) {
+		return fmt.Errorf("Task execution phase does not match state")
+	}
+	if err := validateTaskExecutionPhase(phase); err != nil {
+		return err
+	}
+	_, err := d.Local.Batch(ctx, []upstream.Statement{
+		{SQL: `INSERT INTO local_task_execution_states(task_id,project_id,task_revision,task_revision_sha256,status,stage,worktree,base_head_sha,head_sha,branch,agent,execution_revision,updated_at) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=?)`, Args: []any{state.TaskID, state.ProjectID, state.TaskRevision, state.TaskRevisionSHA256, state.Status, state.Stage, state.Worktree, state.BaseHead, state.Head, state.Branch, state.Agent, state.ExecutionRevision, state.UpdatedAt.UTC().Format(time.RFC3339Nano), state.ProjectID}, RequireRowsAffected: 1},
+		{SQL: `INSERT INTO local_task_execution_phases(task_id,project_id,execution_revision,stage,status,head_sha,branch,task_revision_sha256,event_kind,decision,comment,created_at) SELECT ?,?,?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=?)`, Args: []any{phase.TaskID, phase.ProjectID, phase.ExecutionRevision, phase.Stage, phase.Status, phase.Head, phase.Branch, phase.TaskRevisionSHA256, phase.EventKind, phase.Decision, phase.Comment, phase.CreatedAt.UTC().Format(time.RFC3339Nano), phase.ProjectID}, RequireRowsAffected: 1},
+	})
+	return err
+}
