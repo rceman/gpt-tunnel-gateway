@@ -15,19 +15,22 @@ import (
 )
 
 const (
-	tsk660TaskID               = "GTW-TSK660"
-	tsk660TaskRevision         = 6
-	tsk660ExecutionRevision    = 1
-	tsk660PhasePrefix          = "task-pre-execution-reconciliation:"
-	tsk660MainBase             = "f09d0834d125362d63e1d12b361ad34c63e50d8d"
-	tsk660ImplementationCommit = "899abc90157ee5b4e8b6b27e4284e0c841ccbb17"
-	tsk660ImplementationTree   = "e9073e7db4e6e8a876b1d88eed1ab1760b5ea4a0"
-	tsk660ExecutionBranch      = "task/GTW-TSK660-task-implement-milestone-roadmap-membership-and-"
-	tsk660ExecutionWorktree    = "WT-TSK660-f09d0834"
-	tsk660PlannerJournalKey    = "GTW-JRN16"
-	tsk660PlannerJournalSeq    = uint64(16)
-	tsk660LeadJournalKey       = "GTW-JRN14"
-	tsk660LeadJournalSeq       = uint64(14)
+	tsk660TaskID                      = "GTW-TSK660"
+	tsk660TaskRevision                = 6
+	tsk660ExecutionRevision           = 1
+	tsk660PhasePrefix                 = "task-pre-execution-reconciliation:"
+	tsk660MainBase                    = "f09d0834d125362d63e1d12b361ad34c63e50d8d"
+	tsk660ImplementationCommit        = "899abc90157ee5b4e8b6b27e4284e0c841ccbb17"
+	tsk660ImplementationTree          = "e9073e7db4e6e8a876b1d88eed1ab1760b5ea4a0"
+	tsk660ExecutionBranch             = "task/GTW-TSK660-task-implement-milestone-roadmap-membership-and-"
+	tsk660ExecutionWorktree           = "WT-TSK660-f09d0834"
+	tsk660PlannerJournalKey           = "GTW-JRN16"
+	tsk660PlannerJournalSeq           = uint64(16)
+	tsk660LeadJournalKey              = "GTW-JRN14"
+	tsk660LeadJournalSeq              = uint64(14)
+	tsk660LegacyVerificationOperation = "GTW-OPR3793"
+	tsk660LegacyVerificationCandidate = "8a7ec281b349599d26f803bb8b3f1bea557d0570"
+	tsk660LegacyVerificationReviewID  = int64(424)
 )
 
 type taskPreExecutionPhaseEvidence struct {
@@ -46,10 +49,19 @@ type taskPreExecutionPhaseEvidence struct {
 	ImplementationTree               string   `json:"implementation_tree"`
 	MainBase                         string   `json:"main_base"`
 	CanonicalMainHead                string   `json:"canonical_main_head"`
+	LegacyVerificationOperation      string   `json:"legacy_verification_operation"`
+	LegacyVerificationSHA256         string   `json:"legacy_verification_sha256"`
+	LegacyVerificationCandidate      string   `json:"legacy_verification_candidate"`
 	NormalExecutionStateExisted      bool     `json:"normal_execution_state_existed"`
 	NormalSubmitPhaseCreated         bool     `json:"normal_submit_phase_created"`
 	NormalReviewPhaseCreated         bool     `json:"normal_review_phase_created"`
 	NormalVerificationReceiptCreated bool     `json:"normal_verification_receipt_created"`
+}
+
+type taskPreExecutionVerificationProof struct {
+	OperationID   string
+	CandidateHead string
+	ReceiptSHA256 string
 }
 
 type taskPreExecutionJournalEvidence struct {
@@ -109,7 +121,7 @@ func (s *Service) DebugReconcilePreExecutionTask(ctx context.Context, key string
 	if err != nil {
 		return DebugTaskBootstrapReconciliationResult{}, err
 	}
-	_, verificationFound, err := s.Durability.ReadLatestTaskExecutionVerification(ctx, config.GTWProjectID, tsk660TaskID)
+	verification, err := s.readTSK660LegacyVerification(ctx, task)
 	if err != nil {
 		return DebugTaskBootstrapReconciliationResult{}, err
 	}
@@ -117,7 +129,7 @@ func (s *Service) DebugReconcilePreExecutionTask(ctx context.Context, key string
 	if err != nil {
 		return DebugTaskBootstrapReconciliationResult{}, err
 	}
-	existing, alreadyReconciled, err := validateTSK660State(task, state, found, phases, verificationFound, resetFound, journals)
+	existing, alreadyReconciled, err := validateTSK660State(task, state, found, phases, verification, resetFound, journals)
 	if err != nil {
 		return DebugTaskBootstrapReconciliationResult{}, err
 	}
@@ -139,7 +151,7 @@ func (s *Service) DebugReconcilePreExecutionTask(ctx context.Context, key string
 		return tsk660PublicResult(state, journals, true), nil
 	}
 
-	comment, err := tsk660PhaseComment(task, journals, canonicalMain)
+	comment, err := tsk660PhaseComment(task, journals, verification, canonicalMain)
 	if err != nil {
 		return DebugTaskBootstrapReconciliationResult{}, err
 	}
@@ -332,12 +344,58 @@ func (s *Service) readTSK660Phases(ctx context.Context) (taskPreExecutionPhases,
 	return result, nil
 }
 
-func validateTSK660State(task model.TaskAuthoring, state model.TaskExecutionState, found bool, phases taskPreExecutionPhases, verificationFound, resetFound bool, journals taskPreExecutionJournalEvidence) (taskPreExecutionPhaseEvidence, bool, error) {
+// readTSK660LegacyVerification recognizes TSK660's one pre-execution-era
+// verification receipt (GTW-OPR3793, produced before the current
+// Procedure-gate contract) as its historical gate evidence. Any other receipt
+// shape, a second receipt, or an undecodable/mismatched record fails closed.
+func (s *Service) readTSK660LegacyVerification(ctx context.Context, task model.TaskAuthoring) (taskPreExecutionVerificationProof, error) {
+	receipts, err := s.Durability.ReadTaskExecutionVerificationReceipts(ctx, config.GTWProjectID, tsk660TaskID)
+	if err != nil {
+		return taskPreExecutionVerificationProof{}, err
+	}
+	if len(receipts) != 1 {
+		return taskPreExecutionVerificationProof{}, fmt.Errorf("TSK660 has %d verification receipts; exactly the authorized pre-execution receipt is required", len(receipts))
+	}
+	row := receipts[0]
+	if row.OperationID != tsk660LegacyVerificationOperation || row.AttemptRevision != tsk660TaskRevision || row.Outcome != model.TaskExecutionVerificationSucceeded {
+		return taskPreExecutionVerificationProof{}, fmt.Errorf("TSK660 verification receipt is not the authorized pre-execution gate proof")
+	}
+	var receipt model.TaskExecutionVerification
+	if err := json.Unmarshal([]byte(row.ReceiptJSON), &receipt); err != nil {
+		return taskPreExecutionVerificationProof{}, fmt.Errorf("TSK660 legacy verification receipt is undecodable")
+	}
+	if receipt.ProjectID != config.GTWProjectID || receipt.TaskID != tsk660TaskID || receipt.OperationID != row.OperationID || receipt.TaskRevision != tsk660TaskRevision || receipt.AttemptRevision != row.AttemptRevision || receipt.TaskRevisionSHA256 != task.RevisionSHA256 || receipt.Outcome != model.TaskExecutionVerificationSucceeded || receipt.Error != "" || receipt.BaseHead != tsk660MainBase || receipt.CandidateHead != tsk660LegacyVerificationCandidate || receipt.CandidateTree != tsk660ImplementationTree || receipt.Branch != tsk660ExecutionBranch || receipt.CodeReviewID != tsk660LegacyVerificationReviewID || receipt.TestsReviewID != 0 || receipt.RebaseReviewID != 0 {
+		return taskPreExecutionVerificationProof{}, fmt.Errorf("TSK660 verification receipt identity does not match the authorized pre-execution gate proof")
+	}
+	if receipt.StartedAt.IsZero() || receipt.CompletedAt.IsZero() || !receipt.CompletedAt.After(receipt.StartedAt) {
+		return taskPreExecutionVerificationProof{}, fmt.Errorf("TSK660 legacy verification receipt timing is invalid")
+	}
+	want := map[string]bool{"format": false, "check": false, "test": false}
+	for _, gate := range receipt.Gates {
+		if _, ok := want[gate.ID]; !ok || want[gate.ID] || gate.ExitCode != 0 || gate.Execution != "executed" || gate.TreeID != tsk660ImplementationTree {
+			return taskPreExecutionVerificationProof{}, fmt.Errorf("TSK660 legacy verification gate %q does not match the authorized pre-execution gate proof", gate.ID)
+		}
+		want[gate.ID] = true
+	}
+	for _, seen := range want {
+		if !seen {
+			return taskPreExecutionVerificationProof{}, fmt.Errorf("TSK660 legacy verification is missing a required pre-execution gate")
+		}
+	}
+	digest := sha256.Sum256([]byte(row.ReceiptJSON))
+	return taskPreExecutionVerificationProof{
+		OperationID:   row.OperationID,
+		CandidateHead: receipt.CandidateHead,
+		ReceiptSHA256: hex.EncodeToString(digest[:]),
+	}, nil
+}
+
+func validateTSK660State(task model.TaskAuthoring, state model.TaskExecutionState, found bool, phases taskPreExecutionPhases, verification taskPreExecutionVerificationProof, resetFound bool, journals taskPreExecutionJournalEvidence) (taskPreExecutionPhaseEvidence, bool, error) {
 	if task.ID != tsk660TaskID || task.ProjectID != config.GTWProjectID || task.Revision != tsk660TaskRevision {
 		return taskPreExecutionPhaseEvidence{}, false, fmt.Errorf("TSK660 authoring record does not match the authorized pre-execution identity")
 	}
-	if verificationFound || resetFound || len(phases.code) != 0 || len(phases.tests) != 0 || len(phases.rebase) != 0 {
-		return taskPreExecutionPhaseEvidence{}, false, fmt.Errorf("TSK660 carries execution or verification evidence the pre-execution landing never produced")
+	if resetFound || len(phases.code) != 0 || len(phases.tests) != 0 || len(phases.rebase) != 0 {
+		return taskPreExecutionPhaseEvidence{}, false, fmt.Errorf("TSK660 carries execution evidence the pre-execution landing never produced")
 	}
 	if !found {
 		if task.Status != model.TaskAuthoringPlanned {
@@ -367,33 +425,36 @@ func validateTSK660State(task model.TaskAuthoring, state model.TaskExecutionStat
 	if err != nil || string(canonical) != encoded {
 		return taskPreExecutionPhaseEvidence{}, false, fmt.Errorf("TSK660 pre-execution phase envelope is not canonical")
 	}
-	if !tsk660PhaseEvidenceValid(evidence, task, journals) {
+	if !tsk660PhaseEvidenceValid(evidence, task, verification, journals) {
 		return taskPreExecutionPhaseEvidence{}, false, fmt.Errorf("TSK660 pre-execution reconciliation receipt conflicts with current authority")
 	}
 	return evidence, true, nil
 }
 
-func tsk660PhaseEvidenceValid(evidence taskPreExecutionPhaseEvidence, task model.TaskAuthoring, journals taskPreExecutionJournalEvidence) bool {
-	return evidence.SchemaVersion == 1 && evidence.Kind == "planner-authorized-pre-execution-reconciliation" && evidence.TaskID == tsk660TaskID && evidence.TaskRevision == tsk660TaskRevision && evidence.TaskRevisionSHA256 == task.RevisionSHA256 && evidence.PlannerAuthorization == journals.PlannerKey && evidence.PlannerEvidenceSHA256 == journals.PlannerDigest && evidence.LeadReviewEvidence == journals.LeadKey && evidence.LeadReviewSHA256 == journals.LeadDigest && slices.Equal(evidence.LeadGateEvidence, journals.GateKeys) && slices.Equal(evidence.LeadGateEvidenceSHA256, journals.GateDigests) && evidence.ImplementationCommit == tsk660ImplementationCommit && evidence.ImplementationTree == tsk660ImplementationTree && evidence.MainBase == tsk660MainBase && model.ValidateCommitSHA(evidence.CanonicalMainHead) == nil && !evidence.NormalExecutionStateExisted && !evidence.NormalSubmitPhaseCreated && !evidence.NormalReviewPhaseCreated && !evidence.NormalVerificationReceiptCreated
+func tsk660PhaseEvidenceValid(evidence taskPreExecutionPhaseEvidence, task model.TaskAuthoring, verification taskPreExecutionVerificationProof, journals taskPreExecutionJournalEvidence) bool {
+	return evidence.SchemaVersion == 1 && evidence.Kind == "planner-authorized-pre-execution-reconciliation" && evidence.TaskID == tsk660TaskID && evidence.TaskRevision == tsk660TaskRevision && evidence.TaskRevisionSHA256 == task.RevisionSHA256 && evidence.PlannerAuthorization == journals.PlannerKey && evidence.PlannerEvidenceSHA256 == journals.PlannerDigest && evidence.LeadReviewEvidence == journals.LeadKey && evidence.LeadReviewSHA256 == journals.LeadDigest && slices.Equal(evidence.LeadGateEvidence, journals.GateKeys) && slices.Equal(evidence.LeadGateEvidenceSHA256, journals.GateDigests) && evidence.ImplementationCommit == tsk660ImplementationCommit && evidence.ImplementationTree == tsk660ImplementationTree && evidence.MainBase == tsk660MainBase && model.ValidateCommitSHA(evidence.CanonicalMainHead) == nil && evidence.LegacyVerificationOperation == verification.OperationID && evidence.LegacyVerificationSHA256 == verification.ReceiptSHA256 && evidence.LegacyVerificationCandidate == verification.CandidateHead && !evidence.NormalExecutionStateExisted && !evidence.NormalSubmitPhaseCreated && !evidence.NormalReviewPhaseCreated && !evidence.NormalVerificationReceiptCreated
 }
 
-func tsk660PhaseComment(task model.TaskAuthoring, journals taskPreExecutionJournalEvidence, canonicalMain string) (string, error) {
+func tsk660PhaseComment(task model.TaskAuthoring, journals taskPreExecutionJournalEvidence, verification taskPreExecutionVerificationProof, canonicalMain string) (string, error) {
 	evidence := taskPreExecutionPhaseEvidence{
-		SchemaVersion:          1,
-		Kind:                   "planner-authorized-pre-execution-reconciliation",
-		TaskID:                 tsk660TaskID,
-		TaskRevision:           task.Revision,
-		TaskRevisionSHA256:     task.RevisionSHA256,
-		PlannerAuthorization:   journals.PlannerKey,
-		PlannerEvidenceSHA256:  journals.PlannerDigest,
-		LeadReviewEvidence:     journals.LeadKey,
-		LeadReviewSHA256:       journals.LeadDigest,
-		LeadGateEvidence:       journals.GateKeys,
-		LeadGateEvidenceSHA256: journals.GateDigests,
-		ImplementationCommit:   tsk660ImplementationCommit,
-		ImplementationTree:     tsk660ImplementationTree,
-		MainBase:               tsk660MainBase,
-		CanonicalMainHead:      canonicalMain,
+		SchemaVersion:               1,
+		Kind:                        "planner-authorized-pre-execution-reconciliation",
+		TaskID:                      tsk660TaskID,
+		TaskRevision:                task.Revision,
+		TaskRevisionSHA256:          task.RevisionSHA256,
+		PlannerAuthorization:        journals.PlannerKey,
+		PlannerEvidenceSHA256:       journals.PlannerDigest,
+		LeadReviewEvidence:          journals.LeadKey,
+		LeadReviewSHA256:            journals.LeadDigest,
+		LeadGateEvidence:            journals.GateKeys,
+		LeadGateEvidenceSHA256:      journals.GateDigests,
+		ImplementationCommit:        tsk660ImplementationCommit,
+		ImplementationTree:          tsk660ImplementationTree,
+		MainBase:                    tsk660MainBase,
+		CanonicalMainHead:           canonicalMain,
+		LegacyVerificationOperation: verification.OperationID,
+		LegacyVerificationSHA256:    verification.ReceiptSHA256,
+		LegacyVerificationCandidate: verification.CandidateHead,
 	}
 	raw, err := json.Marshal(evidence)
 	if err != nil {

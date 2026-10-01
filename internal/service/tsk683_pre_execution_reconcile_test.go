@@ -1,12 +1,14 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	upstream "github.com/rceman/go-sqlite-store/store"
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
@@ -201,30 +203,39 @@ func tsk660MintedState(task model.TaskAuthoring) model.TaskExecutionState {
 	}
 }
 
+func tsk660TestVerification() taskPreExecutionVerificationProof {
+	return taskPreExecutionVerificationProof{
+		OperationID:   tsk660LegacyVerificationOperation,
+		CandidateHead: tsk660LegacyVerificationCandidate,
+		ReceiptSHA256: strings.Repeat("c", 64),
+	}
+}
+
 func TestTSK660ValidationFreshPlannedTaskHasNoState(t *testing.T) {
 	task := tsk660TestTask()
 	journals := tsk660TestJournals()
-	evidence, already, err := validateTSK660State(task, model.TaskExecutionState{}, false, taskPreExecutionPhases{}, false, false, journals)
+	verification := tsk660TestVerification()
+	evidence, already, err := validateTSK660State(task, model.TaskExecutionState{}, false, taskPreExecutionPhases{}, verification, false, journals)
 	if err != nil || already || evidence.Kind != "" {
 		t.Fatalf("fresh validation evidence=%#v already=%v err=%v", evidence, already, err)
 	}
 	// A wrong task identity fails closed.
 	wrong := task
 	wrong.Revision = 7
-	if _, _, err := validateTSK660State(wrong, model.TaskExecutionState{}, false, taskPreExecutionPhases{}, false, false, journals); err == nil {
+	if _, _, err := validateTSK660State(wrong, model.TaskExecutionState{}, false, taskPreExecutionPhases{}, verification, false, journals); err == nil {
 		t.Fatal("revised authoring record passed pre-execution validation")
 	}
 	// Fabricated normal-lifecycle evidence fails closed.
-	if _, _, err := validateTSK660State(task, model.TaskExecutionState{}, false, taskPreExecutionPhases{}, true, false, journals); err == nil {
-		t.Fatal("verification receipt presence passed pre-execution validation")
-	}
-	if _, _, err := validateTSK660State(task, model.TaskExecutionState{}, false, taskPreExecutionPhases{code: []sqlitestore.TaskExecutionPhase{{TaskID: tsk660TaskID}}}, false, false, journals); err == nil {
+	if _, _, err := validateTSK660State(task, model.TaskExecutionState{}, false, taskPreExecutionPhases{code: []sqlitestore.TaskExecutionPhase{{TaskID: tsk660TaskID}}}, verification, false, journals); err == nil {
 		t.Fatal("code-phase evidence passed pre-execution validation")
+	}
+	if _, _, err := validateTSK660State(task, model.TaskExecutionState{}, false, taskPreExecutionPhases{}, verification, true, journals); err == nil {
+		t.Fatal("reset-phase evidence passed pre-execution validation")
 	}
 	// No execution state but a done authoring record is ambiguous: fail closed.
 	done := task
 	done.Status = model.TaskAuthoringDone
-	if _, _, err := validateTSK660State(done, model.TaskExecutionState{}, false, taskPreExecutionPhases{}, false, false, journals); err == nil {
+	if _, _, err := validateTSK660State(done, model.TaskExecutionState{}, false, taskPreExecutionPhases{}, verification, false, journals); err == nil {
 		t.Fatal("done authoring record without execution state passed")
 	}
 }
@@ -233,7 +244,8 @@ func TestTSK660ValidationReplayRequiresExactReceipt(t *testing.T) {
 	task := tsk660TestTask()
 	journals := tsk660TestJournals()
 	state := tsk660MintedState(task)
-	comment, err := tsk660PhaseComment(task, journals, strings.Repeat("c", 40))
+	verification := tsk660TestVerification()
+	comment, err := tsk660PhaseComment(task, journals, verification, strings.Repeat("d", 40))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,35 +256,152 @@ func TestTSK660ValidationReplayRequiresExactReceipt(t *testing.T) {
 		EventKind: "integration", Decision: "accept", Comment: comment, CreatedAt: state.UpdatedAt,
 	}
 	phases := taskPreExecutionPhases{integration: []sqlitestore.TaskExecutionPhase{phase}}
-	evidence, already, err := validateTSK660State(task, state, true, phases, false, false, journals)
+	evidence, already, err := validateTSK660State(task, state, true, phases, verification, false, journals)
 	if err != nil || !already {
 		t.Fatalf("exact replay rejected: evidence=%#v already=%v err=%v", evidence, already, err)
 	}
-	if evidence.ImplementationCommit != tsk660ImplementationCommit || evidence.MainBase != tsk660MainBase || evidence.ImplementationTree != tsk660ImplementationTree {
+	if evidence.ImplementationCommit != tsk660ImplementationCommit || evidence.MainBase != tsk660MainBase || evidence.ImplementationTree != tsk660ImplementationTree || evidence.LegacyVerificationOperation != tsk660LegacyVerificationOperation {
 		t.Fatalf("replay evidence identity=%#v", evidence)
 	}
 	// Tampered head: fail.
 	tampered := phase
-	tampered.Head = strings.Repeat("d", 40)
-	if _, _, err := validateTSK660State(task, state, true, taskPreExecutionPhases{integration: []sqlitestore.TaskExecutionPhase{tampered}}, false, false, journals); err == nil {
+	tampered.Head = strings.Repeat("e", 40)
+	if _, _, err := validateTSK660State(task, state, true, taskPreExecutionPhases{integration: []sqlitestore.TaskExecutionPhase{tampered}}, verification, false, journals); err == nil {
 		t.Fatal("tampered phase head passed replay validation")
 	}
 	// Fabricated non-reconciliation comment: fail.
 	fake := phase
 	fake.Comment = `task-pre-execution-reconciliation:{"schema_version":1}`
-	if _, _, err := validateTSK660State(task, state, true, taskPreExecutionPhases{integration: []sqlitestore.TaskExecutionPhase{fake}}, false, false, journals); err == nil {
+	if _, _, err := validateTSK660State(task, state, true, taskPreExecutionPhases{integration: []sqlitestore.TaskExecutionPhase{fake}}, verification, false, journals); err == nil {
 		t.Fatal("fabricated evidence envelope passed replay validation")
 	}
 	// Different gate journals recorded than present: fail.
 	changedJournals := journals
 	changedJournals.GateKeys = []string{"GTW-JRN99"}
-	if _, _, err := validateTSK660State(task, state, true, phases, false, false, changedJournals); err == nil {
+	if _, _, err := validateTSK660State(task, state, true, phases, verification, false, changedJournals); err == nil {
 		t.Fatal("drifted gate evidence passed replay validation")
+	}
+	// A different persisted receipt than the minted one fails replay.
+	changedVerification := verification
+	changedVerification.ReceiptSHA256 = strings.Repeat("f", 64)
+	if _, _, err := validateTSK660State(task, state, true, phases, changedVerification, false, journals); err == nil {
+		t.Fatal("drifted legacy verification identity passed replay validation")
 	}
 	// A normal in-progress state fails closed.
 	progress := state
 	progress.Status = model.TaskExecutionInProgress
-	if _, _, err := validateTSK660State(task, progress, true, phases, false, false, journals); err == nil {
+	if _, _, err := validateTSK660State(task, progress, true, phases, verification, false, journals); err == nil {
 		t.Fatal("non-terminal execution state passed pre-execution validation")
+	}
+}
+
+func tsk660ReceiptJSON(t *testing.T, task model.TaskAuthoring, mutate func(*model.TaskExecutionVerification)) string {
+	t.Helper()
+	receipt := model.TaskExecutionVerification{
+		ProjectID:          config.GTWProjectID,
+		TaskID:             tsk660TaskID,
+		OperationID:        tsk660LegacyVerificationOperation,
+		TaskRevisionSHA256: task.RevisionSHA256,
+		BaseHead:           tsk660MainBase,
+		CandidateHead:      tsk660LegacyVerificationCandidate,
+		CandidateTree:      tsk660ImplementationTree,
+		Branch:             tsk660ExecutionBranch,
+		GateProfileSHA256:  strings.Repeat("1", 64),
+		Outcome:            model.TaskExecutionVerificationSucceeded,
+		TaskRevision:       tsk660TaskRevision,
+		AttemptRevision:    tsk660TaskRevision,
+		CodeReviewID:       tsk660LegacyVerificationReviewID,
+		Gates: []model.CompletionGateResult{
+			{ID: "format", ExitCode: 0, Execution: "executed", TreeID: tsk660ImplementationTree},
+			{ID: "check", ExitCode: 0, Execution: "executed", TreeID: tsk660ImplementationTree},
+			{ID: "test", ExitCode: 0, Execution: "executed", TreeID: tsk660ImplementationTree},
+		},
+		StartedAt:   time.Now().UTC().Add(-time.Hour),
+		CompletedAt: time.Now().UTC(),
+	}
+	if mutate != nil {
+		mutate(&receipt)
+	}
+	raw, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+func tsk660InsertReceipt(t *testing.T, db *sqlitestore.Databases, operationID string, attempt int, outcome, receiptJSON string) {
+	t.Helper()
+	_, err := db.Local.Batch(context.Background(), []upstream.Statement{{
+		SQL:  `INSERT INTO local_task_execution_verifications(project_id,task_id,operation_id,attempt_revision,outcome,receipt_json,created_at) VALUES(?,?,?,?,?,?,?)`,
+		Args: []any{config.GTWProjectID, tsk660TaskID, operationID, attempt, outcome, receiptJSON, time.Now().UTC().Format(time.RFC3339Nano)},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTSK660LegacyVerificationExactShapeOnly(t *testing.T) {
+	task := tsk660TestTask()
+	cases := []struct {
+		name    string
+		setup   func(t *testing.T, db *sqlitestore.Databases)
+		wantErr bool
+	}{
+		{name: "exact receipt accepted", setup: func(t *testing.T, db *sqlitestore.Databases) {
+			tsk660InsertReceipt(t, db, tsk660LegacyVerificationOperation, tsk660TaskRevision, model.TaskExecutionVerificationSucceeded, tsk660ReceiptJSON(t, task, nil))
+		}},
+		{name: "no receipt fails closed", wantErr: true, setup: func(t *testing.T, db *sqlitestore.Databases) {}},
+		{name: "second receipt fails closed", wantErr: true, setup: func(t *testing.T, db *sqlitestore.Databases) {
+			tsk660InsertReceipt(t, db, tsk660LegacyVerificationOperation, tsk660TaskRevision, model.TaskExecutionVerificationSucceeded, tsk660ReceiptJSON(t, task, nil))
+			tsk660InsertReceipt(t, db, "GTW-OPR9999", tsk660TaskRevision+1, model.TaskExecutionVerificationSucceeded, tsk660ReceiptJSON(t, task, func(r *model.TaskExecutionVerification) { r.OperationID = "GTW-OPR9999" }))
+		}},
+		{name: "wrong operation fails", wantErr: true, setup: func(t *testing.T, db *sqlitestore.Databases) {
+			tsk660InsertReceipt(t, db, "GTW-OPR9999", tsk660TaskRevision, model.TaskExecutionVerificationSucceeded, tsk660ReceiptJSON(t, task, func(r *model.TaskExecutionVerification) { r.OperationID = "GTW-OPR9999" }))
+		}},
+		{name: "failed outcome fails", wantErr: true, setup: func(t *testing.T, db *sqlitestore.Databases) {
+			tsk660InsertReceipt(t, db, tsk660LegacyVerificationOperation, tsk660TaskRevision, model.TaskExecutionVerificationFailed, tsk660ReceiptJSON(t, task, func(r *model.TaskExecutionVerification) {
+				r.Outcome = model.TaskExecutionVerificationFailed
+				r.Error = "gate failed"
+			}))
+		}},
+		{name: "wrong candidate tree fails", wantErr: true, setup: func(t *testing.T, db *sqlitestore.Databases) {
+			tsk660InsertReceipt(t, db, tsk660LegacyVerificationOperation, tsk660TaskRevision, model.TaskExecutionVerificationSucceeded, tsk660ReceiptJSON(t, task, func(r *model.TaskExecutionVerification) { r.CandidateTree = strings.Repeat("9", 40) }))
+		}},
+		{name: "undecodable payload fails", wantErr: true, setup: func(t *testing.T, db *sqlitestore.Databases) {
+			tsk660InsertReceipt(t, db, tsk660LegacyVerificationOperation, tsk660TaskRevision, model.TaskExecutionVerificationSucceeded, "{not-json")
+		}},
+		{name: "failing gate fails", wantErr: true, setup: func(t *testing.T, db *sqlitestore.Databases) {
+			tsk660InsertReceipt(t, db, tsk660LegacyVerificationOperation, tsk660TaskRevision, model.TaskExecutionVerificationSucceeded, tsk660ReceiptJSON(t, task, func(r *model.TaskExecutionVerification) { r.Gates[1].ExitCode = 1 }))
+		}},
+		{name: "missing gate fails", wantErr: true, setup: func(t *testing.T, db *sqlitestore.Databases) {
+			tsk660InsertReceipt(t, db, tsk660LegacyVerificationOperation, tsk660TaskRevision, model.TaskExecutionVerificationSucceeded, tsk660ReceiptJSON(t, task, func(r *model.TaskExecutionVerification) { r.Gates = r.Gates[:2] }))
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db, err := sqlitestore.Open(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			tc.setup(t, db)
+			s := &Service{
+				Config:     config.Config{StateDir: t.TempDir()},
+				Durability: db,
+			}
+			proof, err := s.readTSK660LegacyVerification(context.Background(), task)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("invalid verification receipt shape was accepted")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("authorized receipt rejected: %v", err)
+			}
+			if proof.OperationID != tsk660LegacyVerificationOperation || proof.CandidateHead != tsk660LegacyVerificationCandidate || len(proof.ReceiptSHA256) != 64 {
+				t.Fatalf("unexpected proof=%#v", proof)
+			}
+		})
 	}
 }

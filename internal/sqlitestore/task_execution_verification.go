@@ -38,6 +38,50 @@ func (d *Databases) ReadLatestTaskExecutionVerification(ctx context.Context, pro
 	return receipt, true, nil
 }
 
+// TaskExecutionVerificationReceipt is the raw persisted verification row —
+// returned unvalidated so the bounded pre-execution reconciliation can inspect
+// a legacy receipt shape the current Procedure-gate contract rejects.
+type TaskExecutionVerificationReceipt struct {
+	OperationID     string
+	Outcome         string
+	AttemptRevision int
+	ReceiptJSON     string
+}
+
+// ReadTaskExecutionVerificationReceipts returns every persisted verification
+// receipt for a Task ordered by attempt revision, without contract decoding.
+// The bounded reconciliation path validates the exact historical shape itself;
+// anything beyond the tiny bound is corrupt and fails closed.
+func (d *Databases) ReadTaskExecutionVerificationReceipts(ctx context.Context, projectID, taskID string) ([]TaskExecutionVerificationReceipt, error) {
+	if d == nil || d.Local == nil {
+		return nil, fmt.Errorf("local store is unavailable")
+	}
+	rows, err := d.Local.Query(ctx, `SELECT operation_id, attempt_revision, outcome, receipt_json FROM local_task_execution_verifications WHERE project_id=? AND task_id=? AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=local_task_execution_verifications.project_id) ORDER BY attempt_revision LIMIT 8`, projectID, taskID)
+	if err != nil {
+		return nil, err
+	}
+	receipts := make([]TaskExecutionVerificationReceipt, 0, len(rows.Rows))
+	for _, row := range rows.Rows {
+		if len(row) != 4 {
+			return nil, fmt.Errorf("invalid Task verification row")
+		}
+		op, ok := row[0].(string)
+		attempt, okAttempt := row[1].(int64)
+		outcome, okOutcome := row[2].(string)
+		receiptJSON, okJSON := row[3].(string)
+		if !ok || !okAttempt || !okOutcome || !okJSON {
+			return nil, fmt.Errorf("invalid Task verification receipt encoding")
+		}
+		receipts = append(receipts, TaskExecutionVerificationReceipt{
+			OperationID:     op,
+			AttemptRevision: int(attempt),
+			Outcome:         outcome,
+			ReceiptJSON:     receiptJSON,
+		})
+	}
+	return receipts, nil
+}
+
 func (d *Databases) FinishTaskExecutionVerification(ctx context.Context, nextState model.TaskExecutionState, expectedRevision int, receipt model.TaskExecutionVerification) error {
 	if d == nil || d.Local == nil {
 		return fmt.Errorf("local store is unavailable")
