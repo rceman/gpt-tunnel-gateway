@@ -1673,8 +1673,8 @@ domains:
                     min_items: 3
                     type: array
                 execution_revision:
-                    maximum: 1
-                    minimum: 1
+                    maximum: 10
+                    minimum: 10
                     type: integer
                 integration_head:
                     max_length: 8

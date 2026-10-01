@@ -452,7 +452,7 @@ func debugTaskPreExecutionReconcileOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
 		"key":                key,
 		"status":             outputEnum("integrated"),
-		"execution_revision": integer("Exact reconciled execution revision.", 1, 1),
+		"execution_revision": integer("Exact reconciled execution revision.", 10, 10),
 		"integration_head":   head,
 		"evidence":           evidence,
 		"already_reconciled": outputBoolean(),
