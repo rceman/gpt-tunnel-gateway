@@ -195,18 +195,19 @@ func (h publicCodeCallHarness) callResponse(t *testing.T, action string, input m
 	return response, tokens
 }
 
-func assertPublicCodeHead(t *testing.T, result map[string]any, want string) {
+// assertPublicCodeNoIdentityEcho is the ADR134 regression assertion for every
+// code inspection result: selector-proven request echoes (worktree/live/head)
+// and scan telemetry (paths_scanned) never leave the service boundary, and
+// dirty is present only as observed true.
+func assertPublicCodeNoIdentityEcho(t *testing.T, result map[string]any) {
 	t.Helper()
-	want = strings.ToLower(want[:8])
-	if result["head"] != want {
-		t.Fatalf("public code result head=%#v want %q: %#v", result["head"], want, result)
+	for _, field := range []string{"worktree", "live", "head", "paths_scanned"} {
+		if value, ok := result[field]; ok {
+			t.Fatalf("public code result echoes selector-proven or telemetry field %q=%#v: %#v", field, value, result)
+		}
 	}
-}
-
-func assertPublicCodeReadHead(t *testing.T, result map[string]any, want string) {
-	t.Helper()
-	if result["head"] != want[:8] {
-		t.Fatalf("public code/read head=%#v want %q: %#v", result["head"], want[:8], result)
+	if dirty, ok := result["dirty"]; ok && dirty != true {
+		t.Fatalf("public code result carries dirty=%#v filler instead of presence-only true: %#v", dirty, result)
 	}
 }
 

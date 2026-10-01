@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/config"
@@ -32,7 +33,11 @@ func TestCodeActionsAreSessionBoundAndProjectIsNotCallerSelectable(t *testing.T)
 	}
 }
 
-func TestCodeOutputSchemasRequireFullHead(t *testing.T) {
+// TestCodeOutputSchemasCompactSelectorIdentity is the ADR134 contract for
+// code inspection results: the presented selector already proves worktree,
+// live mode and head, so none may echo back. dirty is presence-only
+// (observed dirt), never a required false filler.
+func TestCodeOutputSchemasCompactSelectorIdentity(t *testing.T) {
 	server := &Server{Service: service.NewWithDurabilityDeferredWorkers(config.Config{
 		GatewayID: "code-output-contract-test", StateDir: t.TempDir(),
 	}, nil)}
@@ -43,11 +48,21 @@ func TestCodeOutputSchemasRequireFullHead(t *testing.T) {
 			t.Fatalf("missing generic code action %q", path)
 		}
 		properties := entry.OutputSchema["properties"].(map[string]any)
-		if _, ok := properties["head"]; !ok {
-			t.Fatalf("code action %q output omits full head: %#v", path, entry.OutputSchema)
+		for _, echo := range []string{"worktree", "live", "head", "paths_scanned"} {
+			if _, ok := properties[echo]; ok {
+				t.Fatalf("code action %q output repeats selector-proven or telemetry field %q: %#v", path, echo, entry.OutputSchema)
+			}
 		}
-		if !requiredOutputField(entry.OutputSchema, "head") {
-			t.Fatalf("code action %q output does not require full head: %#v", path, entry.OutputSchema)
+		dirty, ok := properties["dirty"].(map[string]any)
+		if !ok || dirty["type"] != "boolean" {
+			t.Fatalf("code action %q output missing optional dirty: %#v", path, entry.OutputSchema)
+		}
+		description, _ := dirty["description"].(string)
+		if !strings.Contains(description, "uncommitted") {
+			t.Fatalf("code action %q dirty omits its presence-only semantics: %q", path, description)
+		}
+		if requiredOutputField(entry.OutputSchema, "dirty") {
+			t.Fatalf("code action %q requires dirty=false filler", path)
 		}
 	}
 	worktree := entries["code/worktree"].OutputSchema["properties"].(map[string]any)
@@ -55,8 +70,8 @@ func TestCodeOutputSchemasRequireFullHead(t *testing.T) {
 	if _, ok := item["properties"].(map[string]any)["head"]; !ok {
 		t.Fatalf("code/worktree item omits full head: %#v", item)
 	}
-	if !requiredOutputField(item, "head") {
-		t.Fatalf("code/worktree item does not require full head: %#v", item)
+	if !requiredOutputField(item, "head") || !requiredOutputField(item, "dirty") {
+		t.Fatalf("code/worktree item must keep actionable head and dirty state: %#v", item)
 	}
 }
 

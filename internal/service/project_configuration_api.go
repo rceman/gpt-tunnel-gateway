@@ -27,14 +27,26 @@ type ProjectProcedureCatalogItem struct {
 }
 
 type ProjectProcedureListOutput struct {
-	ConfigurationRevision int                           `json:"configuration_revision"`
+	// ConfigurationRevision is redundant server-owned identity for list
+	// callers; it stays internal and never reaches the public payload.
+	ConfigurationRevision int                           `json:"-"`
 	Procedures            []ProjectProcedureCatalogItem `json:"procedures"`
 }
 
+// ProjectProcedurePublicDefinition is the compact read projection of one
+// Procedure: the callable input/output schemas already live on the compiled
+// procedure/<name> action contract, so the normal read carries only the
+// definition fields that are not published elsewhere.
+type ProjectProcedurePublicDefinition struct {
+	Script  string `json:"script"`
+	Summary string `json:"summary"`
+	Guide   string `json:"guide"`
+}
+
 type ProjectProcedureReadOutput struct {
-	ConfigurationRevision int                              `json:"configuration_revision"`
+	ConfigurationRevision int                              `json:"-"`
 	Name                  string                           `json:"name"`
-	Definition            model.ProjectProcedureDefinition `json:"definition"`
+	Definition            ProjectProcedurePublicDefinition `json:"definition"`
 }
 
 type ProjectHookSummary struct {
@@ -44,12 +56,12 @@ type ProjectHookSummary struct {
 }
 
 type ProjectHookListOutput struct {
-	ConfigurationRevision int                  `json:"configuration_revision"`
+	ConfigurationRevision int                  `json:"-"`
 	Hooks                 []ProjectHookSummary `json:"hooks"`
 }
 
 type ProjectHookReadOutput struct {
-	ConfigurationRevision int            `json:"configuration_revision"`
+	ConfigurationRevision int            `json:"-"`
 	Hook                  string         `json:"hook"`
 	Description           string         `json:"description"`
 	PayloadSchema         map[string]any `json:"payload_schema"`
@@ -140,7 +152,11 @@ func (s *Service) ConfigProcedureRead(ctx context.Context, projectID, name strin
 	return ProjectProcedureReadOutput{
 		ConfigurationRevision: configuration.Revision,
 		Name:                  name,
-		Definition:            definition,
+		Definition: ProjectProcedurePublicDefinition{
+			Script:  definition.Script,
+			Summary: definition.Summary,
+			Guide:   definition.Guide,
+		},
 	}, nil
 }
 

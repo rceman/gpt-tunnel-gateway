@@ -113,13 +113,17 @@ type CodeDiffInput struct {
 	Live      bool     `json:"live"`
 }
 
+// CodeIdentity is the internal resolution record shared by every code
+// inspection result. None of it is public: the caller already proved
+// worktree/live/head identity by presenting the selector, and Dirty is
+// projected only when observed true (see the code/* action contracts).
 type CodeIdentity struct {
-	Worktree string `json:"worktree"`
-	Dirty    bool   `json:"dirty"`
-	Live     bool   `json:"live"`
+	Worktree string `json:"-"`
+	Dirty    bool   `json:"dirty,omitempty"`
+	Live     bool   `json:"-"`
 
 	ProjectID   string `json:"-"`
-	CurrentHead string `json:"head"`
+	CurrentHead string `json:"-"`
 }
 
 type CodeReadResult struct {
@@ -141,7 +145,10 @@ type CodeSearchMatch struct {
 
 type CodeSearchResult struct {
 	CodeIdentity
-	PathsScanned int               `json:"paths_scanned"`
+	// PathsScanned is scan-budget telemetry: it feeds the internal cursor
+	// budget but carries no caller next-decision value, so it never leaves
+	// the service boundary.
+	PathsScanned int               `json:"-"`
 	Matches      []CodeSearchMatch `json:"matches"`
 	Pagination   *CodePagination   `json:"_pagination,omitempty"`
 }
