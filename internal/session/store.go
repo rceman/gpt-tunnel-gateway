@@ -65,6 +65,26 @@ func NewStoreWithGateway(durability *sqlitestore.Databases, gatewayID string) St
 		GatewayID:  gatewayID,
 	}
 }
+
+// sessionNowFunc samples the wall clock; tests override it to simulate
+// deterministic host clock slew without relying on timing sleeps.
+var sessionNowFunc = func() time.Time { return time.Now().UTC() }
+
+// durableSessionNow returns a server-owned monotonic timestamp: a wall-clock
+// step backward can regress successive samples, but the durable ordering
+// invariants are preserved by clamping to the record's own persisted
+// timeline. The floor travels with the record, so the rule survives restarts
+// and is valid across processes — no in-memory monotonic state is needed.
+func durableSessionNow(floors ...time.Time) time.Time {
+	now := sessionNowFunc()
+	for _, floor := range floors {
+		if now.Before(floor) {
+			now = floor
+		}
+	}
+	return now
+}
+
 func (s Store) requireLocal() error {
 	if s.Durability == nil || s.Durability.Local == nil {
 		return fmt.Errorf("local session store is unavailable")
@@ -90,7 +110,7 @@ func (s Store) CreateAdmin(label *string) (Record, error) {
 		if err != nil {
 			return Record{}, err
 		}
-		now := time.Now().UTC()
+		now := sessionNowFunc()
 		record := Record{
 			SchemaVersion: SchemaVersion,
 			ID:            id,
@@ -135,7 +155,7 @@ func (s Store) create(input CreateInput, requireProject bool) (Record, error) {
 		if err != nil {
 			return Record{}, err
 		}
-		now := time.Now().UTC()
+		now := sessionNowFunc()
 		record := Record{
 			SchemaVersion: SchemaVersion,
 			ID:            id,
@@ -196,7 +216,7 @@ func (s Store) Bind(id, projectID string, sessionRef *string) (Record, error) {
 	if sessionRef != nil {
 		record.SessionRef = cloneString(sessionRef)
 	}
-	record.UpdatedAt = time.Now().UTC()
+	record.UpdatedAt = durableSessionNow(record.CreatedAt, record.StartedAt, record.UpdatedAt)
 	if err := record.Validate(); err != nil {
 		return Record{}, err
 	}
@@ -219,7 +239,7 @@ func (s Store) AcknowledgeRules(id, globalRevision, globalDigest, projectDigest 
 	}
 	record.GlobalRulesRevision, record.GlobalRulesDigest = globalRevision, globalDigest
 	record.ProjectRulesDigest = projectDigest
-	record.UpdatedAt = time.Now().UTC()
+	record.UpdatedAt = durableSessionNow(record.CreatedAt, record.StartedAt, record.UpdatedAt)
 	if err := record.Validate(); err != nil {
 		return Record{}, err
 	}
@@ -262,7 +282,7 @@ func (s Store) Update(id string, input UpdateInput) (Record, error) {
 	if input.Label != nil {
 		record.Label = cloneString(input.Label)
 	}
-	record.UpdatedAt = time.Now().UTC()
+	record.UpdatedAt = durableSessionNow(record.CreatedAt, record.StartedAt, record.UpdatedAt)
 	if err := record.Validate(); err != nil {
 		return Record{}, err
 	}
@@ -280,7 +300,7 @@ func (s Store) End(id string) (Record, error) {
 		return record, nil
 	}
 	old := record
-	now := time.Now().UTC()
+	now := durableSessionNow(record.CreatedAt, record.StartedAt, record.UpdatedAt)
 	record.Status, record.EndedAt, record.UpdatedAt = StatusEnded, &now, now
 	if err := record.Validate(); err != nil {
 		return Record{}, err
