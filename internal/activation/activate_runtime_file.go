@@ -3,6 +3,7 @@ package activation
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -22,6 +23,22 @@ const (
 )
 
 var canonicalRuntimeTools = mcpmanifest.CanonicalToolNames()
+
+// PreflightError marks an activation failure that provably happened before
+// the handoff began: no process stop, candidate cutover, durable mutation, or
+// other external effect occurred. Such failures are safe to re-evaluate for
+// the same exact source once the admission condition is corrected.
+type PreflightError struct{ Cause error }
+
+func (e *PreflightError) Error() string { return e.Cause.Error() }
+func (e *PreflightError) Unwrap() error { return e.Cause }
+
+// IsPreflightError reports whether err is a pre-cutover admission/preflight
+// failure with no externally visible effect.
+func IsPreflightError(err error) bool {
+	var preflight *PreflightError
+	return errors.As(err, &preflight)
+}
 
 type Result struct {
 	SourceHead string `json:"source_head"`
@@ -128,72 +145,94 @@ func DebugActivate(ctx context.Context, c config.Config, configPath string, proj
 	return selfActivate(ctx, c, configPath, project, sourceHead, true, false)
 }
 
-func selfActivate(ctx context.Context, c config.Config, configPath string, project config.ProjectConfig, sourceHead string, requireMainBranch, requireGatewayHealthy bool) (Result, error) {
+// prepareActivationCutover runs the pre-cutover admission and disposable
+// preflight phase: exact-source and cleanliness checks, runtime health
+// proof, the release build, the disposable candidate smoke, and recovery
+// snapshot preparation. Nothing before the returned boundary stops a process,
+// replaces an artifact, starts a candidate, or mutates durable state, so a
+// failure here is safe to re-evaluate for the same exact source.
+func prepareActivationCutover(ctx context.Context, c config.Config, ctl controller.Controller, project config.ProjectConfig, sourceHead string, requireMainBranch, requireGatewayHealthy bool) (string, string, controller.Status, *RecoverySnapshot, error) {
 	if project.Root == "" || sourceHead == "" {
-		return Result{}, fmt.Errorf("activation source is incomplete")
+		return "", "", controller.Status{}, nil, fmt.Errorf("activation source is incomplete")
 	}
 	if requireMainBranch {
 		branch, err := gitOutput(ctx, project.Root, "symbolic-ref", "--quiet", "--short", "HEAD")
 		if err != nil || branch != "main" {
-			return Result{}, fmt.Errorf("debug activation requires the configured source branch to be main")
+			return "", "", controller.Status{}, nil, fmt.Errorf("debug activation requires the configured source branch to be main")
 		}
 	}
 	if got, err := gitOutput(ctx, project.Root, "rev-parse", "--verify", "HEAD^{commit}"); err != nil || got != sourceHead {
-		return Result{}, fmt.Errorf("project source head is not the reviewed head")
+		return "", "", controller.Status{}, nil, fmt.Errorf("project source head is not the reviewed head")
 	}
 	if dirty, err := gitOutput(ctx, project.Root, "status", "--porcelain", "--untracked-files=all"); err != nil || dirty != "" {
-		return Result{}, fmt.Errorf("project source worktree is dirty")
+		return "", "", controller.Status{}, nil, fmt.Errorf("project source worktree is dirty")
 	}
 	versionBytes, err := os.ReadFile(filepath.Join(project.Root, "VERSION"))
 	if err != nil {
-		return Result{}, err
+		return "", "", controller.Status{}, nil, err
 	}
 	targetVersion := strings.TrimSpace(string(versionBytes))
 	if targetVersion == "" {
-		return Result{}, fmt.Errorf("project VERSION is empty")
+		return "", "", controller.Status{}, nil, fmt.Errorf("project VERSION is empty")
 	}
-	ctl := controller.Controller{Config: c, ConfigPath: configPath}
 	before, err := ctl.Status(ctx)
 	if err != nil {
-		return Result{}, err
+		return "", "", controller.Status{}, nil, err
 	}
 	if !before.Tunnel.Running || !before.TunnelReady {
-		return Result{}, fmt.Errorf("tunnel is not healthy before activation")
+		return "", "", controller.Status{}, nil, fmt.Errorf("tunnel is not healthy before activation")
 	}
 	if requireGatewayHealthy && (!before.Gateway.Running || !before.GatewayReady) {
-		return Result{}, fmt.Errorf("runtime is not healthy before activation")
+		return "", "", controller.Status{}, nil, fmt.Errorf("runtime is not healthy before activation")
 	}
 	release, err := os.MkdirTemp("", "gpt-tunnel-activation-")
 	if err != nil {
-		return Result{}, err
+		return "", "", controller.Status{}, nil, err
 	}
-	defer os.RemoveAll(release)
+	kept := false
+	defer func() {
+		if !kept {
+			os.RemoveAll(release)
+		}
+	}()
 	build := exec.CommandContext(ctx, filepath.Join(project.Root, "scripts", "build-release.sh"), release)
 	build.Dir = project.Root
 	output, err := runBoundedCommand(build)
 	if err != nil {
-		return Result{}, fmt.Errorf("release build failed: %s", BoundedOutput(output))
+		return "", "", controller.Status{}, nil, fmt.Errorf("release build failed: %s", BoundedOutput(output))
 	}
 	if err := releaseartifacts.ValidateRelease(release, targetVersion); err != nil {
-		return Result{}, err
+		return "", "", controller.Status{}, nil, err
 	}
 	if requireMainBranch {
 		if err := validateReleaseSource(release, sourceHead); err != nil {
-			return Result{}, err
+			return "", "", controller.Status{}, nil, err
 		}
 	}
 	if err := SmokeCandidate(ctx, c, filepath.Join(release, "gpt-tunnel-gatewayd"), targetVersion); err != nil {
-		return Result{}, err
+		return "", "", controller.Status{}, nil, err
 	}
 	paths := releaseartifacts.Paths(c.Controller.GatewayBinary)
 	old, err := releaseartifacts.SnapshotAll(paths)
 	if err != nil {
-		return Result{}, err
+		return "", "", controller.Status{}, nil, err
 	}
 	recovery, err := CreateRecoverySnapshot(c.Controller.PIDDir, release, targetVersion, sourceHead, old)
 	if err != nil {
-		return Result{}, err
+		return "", "", controller.Status{}, nil, err
 	}
+	kept = true
+	return release, targetVersion, before, recovery, nil
+}
+
+func selfActivate(ctx context.Context, c config.Config, configPath string, project config.ProjectConfig, sourceHead string, requireMainBranch, requireGatewayHealthy bool) (Result, error) {
+	ctl := controller.Controller{Config: c, ConfigPath: configPath}
+	release, targetVersion, before, recovery, err := prepareActivationCutover(ctx, c, ctl, project, sourceHead, requireMainBranch, requireGatewayHealthy)
+	if err != nil {
+		return Result{}, &PreflightError{Cause: err}
+	}
+	defer os.RemoveAll(release)
+	paths := releaseartifacts.Paths(c.Controller.GatewayBinary)
 	var after controller.Status
 	outcome, activationErr := ctl.ActivateGateway(controller.GatewayActivation{
 		ValidateBeforeStop: func() error {

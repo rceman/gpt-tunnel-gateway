@@ -26,9 +26,39 @@ type ActivationResult struct {
 	Outcome     string `json:"outcome"`
 }
 
+// activationAttempt preserves one prior failed attempt's evidence inside the
+// follow-up receipt so a retry never erases the earlier failure.
+type activationAttempt struct {
+	Attempt    int    `json:"attempt"`
+	Outcome    string `json:"outcome"`
+	Error      string `json:"error,omitempty"`
+	RecordedAt string `json:"recorded_at"`
+}
+
 type activationReceipt struct {
 	ActivationResult
-	Error string `json:"error,omitempty"`
+	Error         string              `json:"error,omitempty"`
+	Retryable     bool                `json:"retryable,omitempty"`
+	Attempt       int                 `json:"attempt"`
+	PriorAttempts []activationAttempt `json:"prior_attempts,omitempty"`
+}
+
+// maxDebugActivationAttempts bounds how many times one exact source may be
+// attempted, including the first try.
+const maxDebugActivationAttempts = 3
+
+func (r activationReceipt) attempt() int {
+	if r.Attempt < 1 {
+		return 1
+	}
+	return r.Attempt
+}
+
+// retryable reports whether a prior failed receipt may be retried: it was
+// classified pre-cutover (no stop, replacement, durable mutation, or
+// ambiguous external effect) and the attempt bound is not exhausted.
+func (r activationReceipt) retryable() bool {
+	return r.Outcome == "failed" && r.Retryable && r.attempt() < maxDebugActivationAttempts
 }
 
 type ActivationFailure struct {
@@ -123,7 +153,9 @@ func AcceptActivation(c config.Config, configPath, sourceHead string, release fu
 		case "succeeded":
 			return prior.ActivationResult, nil
 		case "failed":
-			return prior.ActivationResult, failure(prior)
+			if !prior.retryable() {
+				return prior.ActivationResult, failure(prior)
+			}
 		case "accepted", "in_progress":
 			return prior.ActivationResult, nil
 		default:
@@ -153,16 +185,33 @@ func AcceptActivation(c config.Config, configPath, sourceHead string, release fu
 		_ = lock.Release()
 		return ActivationResult{}, err
 	}
+	var priorAttempts []activationAttempt
+	attempt := 1
 	if exists {
-		_ = lock.Release()
 		switch prior.Outcome {
 		case "succeeded":
+			_ = lock.Release()
 			return prior.ActivationResult, nil
 		case "failed":
-			return prior.ActivationResult, failure(prior)
+			if !prior.retryable() {
+				_ = lock.Release()
+				return prior.ActivationResult, failure(prior)
+			}
+			// The prior failed receipt provably never reached a cutover or
+			// durable mutation, so a fresh attempt may be admitted. Preserve
+			// the prior failure as bounded attempt evidence.
+			attempt = prior.attempt() + 1
+			priorAttempts = append(append([]activationAttempt(nil), prior.PriorAttempts...), activationAttempt{
+				Attempt:    prior.attempt(),
+				Outcome:    "failed",
+				Error:      prior.Error,
+				RecordedAt: time.Now().UTC().Format(time.RFC3339Nano),
+			})
 		case "accepted", "in_progress":
+			_ = lock.Release()
 			return prior.ActivationResult, nil
 		default:
+			_ = lock.Release()
 			return ActivationResult{}, fmt.Errorf("gateway debug activation receipt has invalid outcome")
 		}
 	}
@@ -177,7 +226,12 @@ func AcceptActivation(c config.Config, configPath, sourceHead string, release fu
 		TunnelPID:   tunnel.PID,
 		Outcome:     "accepted",
 	}
-	if err := fsutil.WriteJSONAtomic(path, activationReceipt{ActivationResult: result}, 0o600); err != nil {
+	receipt := activationReceipt{
+		ActivationResult: result,
+		Attempt:          attempt,
+		PriorAttempts:    priorAttempts,
+	}
+	if err := fsutil.WriteJSONAtomic(path, receipt, 0o600); err != nil {
 		_ = lock.Release()
 		return ActivationResult{}, err
 	}
@@ -235,13 +289,21 @@ func RunActivation(c config.Config, configPath, id, sourceHead string, execute f
 	terminal.TunnelPID = executed.TunnelPID
 	terminal.GatewayPID = executed.GatewayPID
 	terminal.Outcome = "succeeded"
-	receipt := activationReceipt{ActivationResult: terminal}
+	receipt := activationReceipt{
+		ActivationResult: terminal,
+		Attempt:          prior.attempt(),
+		PriorAttempts:    prior.PriorAttempts,
+	}
 	if executeErr != nil {
 		terminal.Activation = "failed"
 		terminal.Smoke = "failed"
 		terminal.Outcome = "failed"
 		receipt.ActivationResult = terminal
 		receipt.Error = boundedError(executeErr)
+		// Only failures that provably happened before the cutover handoff may
+		// admit a bounded retry; anything the candidate execution may have
+		// observed or mutated stays sticky and non-replayable.
+		receipt.Retryable = activation.IsPreflightError(executeErr)
 	}
 	if writeErr := writeReceiptWithRetry(path, receipt); writeErr != nil {
 		persistenceErr := fmt.Errorf("persist debug activation result: %w", writeErr)
@@ -271,6 +333,9 @@ func recordLaunchFailure(c config.Config, id, sourceHead string, cause error) {
 	receipt.Activation = "failed"
 	receipt.Smoke = "failed"
 	receipt.Error = boundedError(cause)
+	// A worker launch failure ran no candidate at all — nothing was stopped,
+	// replaced, or mutated, so the same source may be re-evaluated.
+	receipt.Retryable = true
 	_ = writeReceiptWithRetry(path, receipt)
 }
 
