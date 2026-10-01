@@ -75,11 +75,11 @@ func TestTSK606ActivateLocalChainRunsAfterPreflight(t *testing.T) {
 	}
 	defer db.Close()
 	tsk627SeedGTWConfiguration(t, db, nil)
-	if err := db.migrateGTWActivationProcedures(ctx); err != nil {
+	if err := db.migrateGTWDeliveryProcedures(ctx); err != nil {
 		t.Fatalf("activation procedure chain failed: %v", err)
 	}
 	migrated := tsk627ReadGTWConfiguration(t, db)
-	for _, name := range []string{model.ActivationPreflightProcedureName, model.ActivateLocalProcedureName} {
+	for _, name := range []string{model.ActivationPreflightProcedureName, model.ActivateLocalProcedureName, model.ReleaseProdProcedureName} {
 		if _, ok := migrated.Procedures[name]; !ok {
 			t.Fatalf("Procedure %s was not installed: %v", name, migrated.Procedures)
 		}
