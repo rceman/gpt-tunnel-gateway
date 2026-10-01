@@ -2,6 +2,7 @@ package sqlitestore
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
@@ -83,5 +84,58 @@ func TestTSK606ActivateLocalChainRunsAfterPreflight(t *testing.T) {
 		if _, ok := migrated.Procedures[name]; !ok {
 			t.Fatalf("Procedure %s was not installed: %v", name, migrated.Procedures)
 		}
+	}
+}
+
+// TestTSK686MigrationReconcilesDriftedProcedureSchema seeds the defective
+// pre-TSK686 activate_local shape — identical canonical definition except
+// the inline-string fingerprint fields — and proves the migration converges
+// it to the corrected schema through a normal configuration revision.
+func TestTSK686MigrationReconcilesDriftedProcedureSchema(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	output, err := model.ActivateLocalProcedureOutputSchema(model.ActivateLocalProcedureChecks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Rebuild the defective schema: same canonical fields, inline-string
+	// fingerprints instead of GitFingerprint refs.
+	defective := map[string]any{
+		"type":                 output["type"],
+		"required":             output["required"],
+		"additionalProperties": output["additionalProperties"],
+		"properties":           map[string]any{},
+	}
+	for field, schema := range output["properties"].(map[string]any) {
+		defective["properties"].(map[string]any)[field] = schema
+	}
+	inline := map[string]any{"type": "string", "minLength": 8, "maxLength": 64}
+	defective["properties"].(map[string]any)["source_commit"] = inline
+	defective["properties"].(map[string]any)["source_tree"] = inline
+	definition, err := gtwActivateLocalProcedure()
+	if err != nil {
+		t.Fatal(err)
+	}
+	drifted := definition
+	drifted.Output = defective
+	tsk627SeedGTWConfiguration(t, db, map[string]model.ProjectProcedureDefinition{model.ActivateLocalProcedureName: drifted})
+	if err := db.MigrateGTWActivateLocalProcedure(ctx); err != nil {
+		t.Fatalf("drifted activate_local schema did not reconcile: %v", err)
+	}
+	migrated := tsk627ReadGTWConfiguration(t, db)
+	current, err := json.Marshal(migrated.Procedures[model.ActivateLocalProcedureName])
+	if err != nil {
+		t.Fatal(err)
+	}
+	wanted, err := json.Marshal(definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(current) != string(wanted) {
+		t.Fatal("reconciled activate_local definition is not the canonical schema")
 	}
 }

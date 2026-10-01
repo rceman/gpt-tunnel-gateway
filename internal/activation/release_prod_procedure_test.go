@@ -116,4 +116,11 @@ func TestTSK529ReleaseProdDefinitionIsCanonical(t *testing.T) {
 			t.Fatalf("release_prod input lacks %s", field)
 		}
 	}
+	// Compile through the real call-time contract path: source fingerprints
+	// and tag_object must be GitFingerprint refs or the Procedure is
+	// uncallable once installed.
+	compiled := compileTSK686Procedure(t, model.ReleaseProdProcedureName, definition)
+	if compiled.Output == nil {
+		t.Fatal("release_prod compiled without an output contract")
+	}
 }

@@ -88,10 +88,17 @@ func (d *Databases) MigrateGTWActivationPreflightProcedure(ctx context.Context) 
 		if marshalErr != nil || wantedErr != nil {
 			return fmt.Errorf("canonical activation_preflight Procedure could not be encoded")
 		}
-		if string(current) != string(wanted) {
+		if string(current) == string(wanted) {
+			return d.setSharedUpgradeMigrationState(ctx, projectConfigurationActivationPreflightMigrationID, "complete")
+		}
+		// The known predecessor differs from the canonical definition only
+		// in schema shape (the pre-TSK686 inline fingerprint fields): when
+		// Script/Summary/Guide still identify this Procedure, reconcile the
+		// drifted schemas through a normal configuration revision. A foreign
+		// Procedure under the same name still fails closed.
+		if existing.Script != definition.Script || existing.Summary != definition.Summary || existing.Guide != definition.Guide {
 			return fmt.Errorf("existing activation_preflight Procedure conflicts with the canonical migration")
 		}
-		return d.setSharedUpgradeMigrationState(ctx, projectConfigurationActivationPreflightMigrationID, "complete")
 	}
 	// The new revision must stay ahead of every recorded revision for this
 	// configuration: interrupted publishes can leave Shared history and
