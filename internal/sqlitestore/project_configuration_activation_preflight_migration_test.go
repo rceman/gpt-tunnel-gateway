@@ -118,6 +118,9 @@ func TestTSK627ActivationPreflightMigrationIsIdempotent(t *testing.T) {
 	if err := db.MigrateGTWActivationPreflightProcedure(ctx); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.MigrateGTWActivateLocalProcedure(ctx); err != nil {
+		t.Fatal(err)
+	}
 	first := tsk627ReadGTWConfiguration(t, db)
 	if err := db.MigrateGTWActivationPreflightProcedure(ctx); err != nil {
 		t.Fatalf("idempotent re-run failed: %v", err)
@@ -130,7 +133,7 @@ func TestTSK627ActivationPreflightMigrationIsIdempotent(t *testing.T) {
 		t.Fatalf("idempotent re-run changed revision %d -> %d", first.Revision, second.Revision)
 	}
 	outbox, err := db.Shared.Query(ctx, `SELECT id FROM hub_outbox WHERE entity_type='project_configuration'`)
-	if err != nil || len(outbox.Rows) != 1 {
+	if err != nil || len(outbox.Rows) != 2 {
 		t.Fatalf("idempotent re-run enqueued extra publishes: %v", outbox.Rows)
 	}
 }
