@@ -22,7 +22,7 @@ func TestDebugDomainIsAbsentWhenDisabled(t *testing.T) {
 	s, _ := mcpServiceWithSQLite(t, config.Config{StateDir: t.TempDir()})
 	server := &Server{Service: s}
 	entries := server.genericActionRegistry(server.tools())
-	for _, path := range []string{"debug/status", "debug/prompt", "debug/tail", "debug/await", "debug/project-retire", "debug/project-configuration-migrate", "debug/task-bootstrap-reconcile", "debug/activate"} {
+	for _, path := range []string{"debug/status", "debug/prompt", "debug/tail", "debug/await", "debug/project-retire", "debug/project-configuration-migrate", "debug/task-bootstrap-reconcile", "debug/task-pre-execution-reconcile", "debug/activate"} {
 		if _, ok := entries[path]; ok {
 			t.Fatalf("disabled debug action %q was registered", path)
 		}
@@ -47,7 +47,7 @@ func TestEnabledDebugDomainHasExactInitialActions(t *testing.T) {
 	})
 	server := &Server{Service: s}
 	entries := server.genericActionRegistry(server.tools())
-	want := map[string]bool{"debug/status": true, "debug/prompt": true, "debug/tail": true, "debug/await": true, "debug/project-retire": true, "debug/project-configuration-migrate": true, "debug/task-bootstrap-reconcile": true, "debug/activate": true}
+	want := map[string]bool{"debug/status": true, "debug/prompt": true, "debug/tail": true, "debug/await": true, "debug/project-retire": true, "debug/project-configuration-migrate": true, "debug/task-bootstrap-reconcile": true, "debug/task-pre-execution-reconcile": true, "debug/activate": true}
 	got := map[string]bool{}
 	for path := range entries {
 		if strings.HasPrefix(path, "debug/") {
@@ -189,6 +189,68 @@ func TestDebugTaskBootstrapReconcileContractIsExact(t *testing.T) {
 	}
 }
 
+func TestDebugTaskPreExecutionReconcileContractIsExact(t *testing.T) {
+	s, _ := mcpServiceWithSQLite(t, config.Config{Debug: config.DebugConfig{Enabled: true}, StateDir: t.TempDir()})
+	server := &Server{Service: s}
+	entry, ok := server.genericActionRegistry(server.tools())["debug/task-pre-execution-reconcile"]
+	if !ok || entry.InputSchema["additionalProperties"] != false || entry.AuthorityRole != actionRolePlannerOrLead || !entry.SessionBound || !entry.SessionRequired || !entry.LocalReceiptOnly || !entry.Annotations.DestructiveHint || !entry.Annotations.IdempotentHint {
+		t.Fatalf("pre-execution reconciliation contract=%#v", entry)
+	}
+	properties, ok := entry.InputSchema["properties"].(map[string]any)
+	if !ok || len(properties) != 1 {
+		t.Fatalf("pre-execution input properties=%#v", entry.InputSchema["properties"])
+	}
+	key, ok := properties["key"].(map[string]any)
+	if !ok {
+		t.Fatalf("pre-execution task key schema=%#v", properties["key"])
+	}
+	values, enumOK := key["enum"].([]any)
+	if !enumOK || !slices.Equal(values, []any{"GTW-TSK660"}) {
+		t.Fatalf("pre-execution task key schema=%#v", properties["key"])
+	}
+	adaptedInput, err := server.actionContractSet().AdaptInput("debug/task-pre-execution-reconcile", map[string]any{"key": "GTW-TSK660"})
+	inputObject, ok := adaptedInput.(map[string]any)
+	if err != nil || !ok || inputObject["key"] != "GTW-TSK660" {
+		t.Fatalf("pre-execution input mapping=%#v err=%v", adaptedInput, err)
+	}
+	for _, input := range []map[string]any{
+		{"key": "GTW-TSK677"},
+		{"key": "GTW-TSK606"},
+		{"key": "GTW-TSK660", "implementation_commit": "899abc9"},
+		{"key": "GTW-TSK660", "main_base": "f09d0834"},
+		{"key": "GTW-TSK660", "canonical_main": "deadbeef"},
+	} {
+		raw, err := json.Marshal(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := server.actionContractSet().ValidateInput("debug/task-pre-execution-reconcile", raw); err == nil {
+			t.Fatalf("pre-execution action accepted caller-selected authority: %#v", input)
+		}
+	}
+	output, err := server.actionContractSet().AdaptOutput("debug/task-pre-execution-reconcile", map[string]any{
+		"key": "GTW-TSK660", "status": "integrated", "execution_revision": 1,
+		"integration_head": "899abc90", "evidence": []string{"GTW-JRN14", "GTW-JRN16", "GTW-JRN17"}, "already_reconciled": false,
+	})
+	outputObject, ok := output.(map[string]any)
+	if err != nil || !ok || outputObject["integration_head"] != "899abc90" || outputObject["execution_revision"] != json.Number("1") {
+		t.Fatalf("pre-execution output mapping=%#v err=%v", output, err)
+	}
+	for _, bad := range []map[string]any{
+		{"key": "GTW-TSK660", "status": "integrated", "execution_revision": 2, "integration_head": "899abc90", "evidence": []string{"GTW-JRN14", "GTW-JRN16", "GTW-JRN17"}, "already_reconciled": false},
+		{"key": "GTW-TSK660", "status": "done", "execution_revision": 1, "integration_head": "899abc90", "evidence": []string{"GTW-JRN14", "GTW-JRN16", "GTW-JRN17"}, "already_reconciled": false},
+		{"key": "GTW-TSK660", "status": "integrated", "execution_revision": 1, "integration_head": "899abc90", "evidence": []string{"GTW-JRN14", "GTW-JRN16"}, "already_reconciled": false},
+	} {
+		raw, err := json.Marshal(bad)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := server.actionContractSet().ValidateOutput("debug/task-pre-execution-reconcile", raw); err == nil {
+			t.Fatalf("pre-execution action accepted invalid output: %#v", bad)
+		}
+	}
+}
+
 func TestEnabledDebugSchemaDiscoveryIsExactForPlannerAndLead(t *testing.T) {
 	s, _ := mcpServiceWithSQLite(t, config.Config{Debug: config.DebugConfig{Enabled: true}, StateDir: t.TempDir()})
 	server := &Server{Service: s}
@@ -202,6 +264,7 @@ func TestEnabledDebugSchemaDiscoveryIsExactForPlannerAndLead(t *testing.T) {
 		"debug/project-retire":                true,
 		"debug/project-configuration-migrate": true,
 		"debug/task-bootstrap-reconcile":      true,
+		"debug/task-pre-execution-reconcile":  true,
 	}
 	for _, role := range []string{durableSession.RolePlanner, durableSession.RoleLead} {
 		record := debugTestSession(t, store, role)

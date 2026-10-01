@@ -224,6 +224,31 @@ func (s *Server) registerDebugActions() error {
 		return err
 	}
 	if err := s.RegisterGenericAction(GenericAction{
+		Path:         "debug/task-pre-execution-reconcile",
+		Description:  "Reconcile the exact Planner-authorized already-landed pre-execution TSK660 without fabricating normal lifecycle receipts.",
+		InputSchema:  debugTaskPreExecutionReconcileInputSchema(),
+		OutputSchema: debugTaskPreExecutionReconcileOutputSchema(),
+		Annotations: ToolAnnotations{
+			DestructiveHint: true,
+			IdempotentHint:  true,
+		},
+		AuthorityRole:    actionRolePlannerOrLead,
+		LocalReceiptOnly: true,
+		SessionBound:     true,
+		SessionRequired:  true,
+		Execute: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var in struct {
+				Key string `json:"key"`
+			}
+			if err := decode(raw, &in); err != nil {
+				return nil, err
+			}
+			return s.Service.DebugReconcilePreExecutionTask(ctx, in.Key)
+		},
+	}); err != nil {
+		return err
+	}
+	if err := s.RegisterGenericAction(GenericAction{
 		Path:        "debug/project-configuration-migrate",
 		Description: "Run the deferred ProjectConfiguration v2-to-v3 migration after explicit retirements.",
 		InputSchema: debugStatusInputSchema(),
@@ -403,6 +428,31 @@ func debugTaskBootstrapReconcileOutputSchema() map[string]any {
 		"key":                key,
 		"status":             outputEnum("integrated"),
 		"execution_revision": integer("Exact reconciled execution revision.", 3, 3),
+		"integration_head":   head,
+		"evidence":           evidence,
+		"already_reconciled": outputBoolean(),
+	}, "key", "status", "execution_revision", "integration_head", "evidence", "already_reconciled")
+}
+
+func debugTaskPreExecutionReconcileInputSchema() map[string]any {
+	key := str("Only the exact Planner-authorized pre-execution Task may be reconciled.")
+	key["enum"] = []any{"GTW-TSK660"}
+	return obj(map[string]any{"key": key}, "key")
+}
+
+func debugTaskPreExecutionReconcileOutputSchema() map[string]any {
+	key := outputString()
+	key["enum"] = []any{"GTW-TSK660"}
+	head := outputString()
+	head["minLength"], head["maxLength"], head["pattern"] = 8, 8, `^[0-9a-f]{8}$`
+	journal := outputString()
+	journal["pattern"] = `^GTW-JRN[0-9]+$`
+	evidence := outputArray(journal)
+	evidence["minItems"], evidence["maxItems"] = 3, 8
+	return closedOutput(map[string]any{
+		"key":                key,
+		"status":             outputEnum("integrated"),
+		"execution_revision": integer("Exact reconciled execution revision.", 1, 1),
 		"integration_head":   head,
 		"evidence":           evidence,
 		"already_reconciled": outputBoolean(),

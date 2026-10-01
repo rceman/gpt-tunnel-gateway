@@ -86,7 +86,7 @@ func TestTSK629RoleActionMatrixIsPermissiveAfterSessionAuthentication(t *testing
 			t.Fatalf("%s does not expose the permissive authenticated contract: %#v", path, entries[path])
 		}
 	}
-	for _, path := range []string{"debug/status", "debug/prompt", "debug/tail", "debug/await", "debug/project-retire", "debug/project-configuration-migrate", "debug/task-bootstrap-reconcile", "debug/activate"} {
+	for _, path := range []string{"debug/status", "debug/prompt", "debug/tail", "debug/await", "debug/project-retire", "debug/project-configuration-migrate", "debug/task-bootstrap-reconcile", "debug/task-pre-execution-reconcile", "debug/activate"} {
 		if entries[path].AuthorityRole != actionRolePlannerOrLead {
 			t.Fatalf("%s authority metadata changed: %#v", path, entries[path])
 		}

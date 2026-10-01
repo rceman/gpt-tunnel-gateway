@@ -185,7 +185,7 @@ func TestTSK595FrozenActionInventory(t *testing.T) {
 	debugEntries := debugServer.genericActionRegistry(debugServer.tools())
 	debugPaths := actionPathsWithPrefix(debugEntries, "debug/")
 	wantDebug := append(append([]string{}, inventory.ConditionalDebug.Keep...), inventory.ConditionalDebug.Change...)
-	wantDebug = append(wantDebug, "debug/project-retire", "debug/project-configuration-migrate", "debug/task-bootstrap-reconcile")
+	wantDebug = append(wantDebug, "debug/project-retire", "debug/project-configuration-migrate", "debug/task-bootstrap-reconcile", "debug/task-pre-execution-reconcile")
 	if !equalTSK595Strings(debugPaths, sortedTSK595Strings(wantDebug)) {
 		t.Fatalf("conditional debug actions=%v, want surviving inventory=%v", debugPaths, sortedTSK595Strings(wantDebug))
 	}
