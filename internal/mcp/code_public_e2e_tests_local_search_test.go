@@ -17,7 +17,7 @@ func TestPublicCodeSearchAndDiffOverflowE2ELocalSetup(t *testing.T) {
 		"worktree": fixture.mainSelector, "query": "needle", "live": true,
 	})
 	search := searchPage.result
-	assertPublicCodeHead(t, search, fixture.currentHead)
+	assertPublicCodeNoIdentityEcho(t, search)
 	if len(search["matches"].([]any)) == 0 || searchPage.pagination == nil {
 		t.Fatalf("overflow search did not paginate: %#v", search)
 	}
@@ -32,7 +32,7 @@ func TestPublicCodeSearchAndDiffOverflowE2ELocalSetup(t *testing.T) {
 		"worktree": fixture.mainSelector, "paths": []any{"diff-overflow.txt"}, "live": true,
 	})
 	diff := diffPage.result
-	assertPublicCodeHead(t, diff, fixture.currentHead)
+	assertPublicCodeNoIdentityEcho(t, diff)
 	if diff["diff"] == "" || diffPage.pagination == nil {
 		t.Fatalf("overflow diff did not paginate: %#v", diff)
 	}
@@ -51,9 +51,9 @@ func TestPublicCodeActionsFitPublicEnvelopeE2ELocalSetup(t *testing.T) {
 	for _, action := range []string{"code/worktree", "code/tree", "code/search", "code/read"} {
 		result := harness.call(t, action, inputs[action])
 		if action == "code/read" {
-			assertPublicCodeReadHead(t, result, fixture.currentHead)
+			assertPublicCodeNoIdentityEcho(t, result)
 		} else if action != "code/worktree" {
-			assertPublicCodeHead(t, result, fixture.currentHead)
+			assertPublicCodeNoIdentityEcho(t, result)
 		}
 	}
 
@@ -65,7 +65,7 @@ func TestPublicCodeActionsFitPublicEnvelopeE2ELocalSetup(t *testing.T) {
 	diff := harness.call(t, "code/diff", map[string]any{
 		"worktree": fixture.mainSelector, "paths": []any{"all-actions-diff.txt"}, "live": true,
 	})
-	assertPublicCodeHead(t, diff, fixture.currentHead)
+	assertPublicCodeNoIdentityEcho(t, diff)
 }
 
 func TestPublicCodeReadExactBoundedRangeE2E(t *testing.T) {
@@ -75,7 +75,7 @@ func TestPublicCodeReadExactBoundedRangeE2E(t *testing.T) {
 		"worktree": fixture.mainSelector, "path": "tracked.txt", "start_line": 2, "line_count": 1,
 	})
 	immutable := immutablePage.result
-	assertPublicCodeReadHead(t, immutable, fixture.currentHead)
+	assertPublicCodeNoIdentityEcho(t, immutable)
 	content := strings.Repeat("needle tracked line\n", 512)
 	digest := sha256.Sum256([]byte(content))
 	wantHash := hex.EncodeToString(digest[:])[:8]
@@ -97,7 +97,7 @@ func TestPublicCodeReadExactBoundedRangeE2E(t *testing.T) {
 		"worktree": fixture.mainSelector, "path": "range-e2e.txt", "start_line": 3, "line_count": 2, "live": true,
 	})
 	short := shortPage.result
-	assertPublicCodeReadHead(t, short, fixture.currentHead)
+	assertPublicCodeNoIdentityEcho(t, short)
 	if short["start_line"] != float64(3) || short["end_line"] != float64(4) || short["total_lines"] != float64(8) || short["content"] != "range-03\nrange-04" || shortPage.pagination != nil {
 		t.Fatalf("public exact range was not bounded: %#v", short)
 	}
@@ -123,6 +123,11 @@ func TestPublicCodeReadExactBoundedRangeE2E(t *testing.T) {
 	page := harness.callPage(t, "code/read", map[string]any{
 		"worktree": fixture.mainSelector, "path": "wide-range-e2e.txt", "start_line": 10, "line_count": 100, "live": true,
 	})
+	// Presence-only dirty: the live root now carries an uncommitted file, so
+	// the compact projection must still surface dirty=true explicitly.
+	if page.result["dirty"] != true {
+		t.Fatalf("public dirty observation lost its explicit marker: %#v", page.result)
+	}
 	if page.result["start_line"] != float64(10) || page.pagination == nil {
 		t.Fatalf("public oversized range did not return a continuation: %#v", page)
 	}

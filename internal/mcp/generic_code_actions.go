@@ -226,14 +226,18 @@ func codeWorktreeOutputSchema() map[string]any {
 	return closedOutput(map[string]any{"items": outputArray(item)}, "items")
 }
 
+// codeIdentityOutputSchema is the compact presence-only identity carried by
+// every code inspection result: request echoes (worktree/live/head) stay out
+// because the presented selector already proves them, and dirty appears only
+// when uncommitted changes were observed.
 func codeIdentityOutputSchema() map[string]any {
-	return map[string]any{"worktree": outputString(), "dirty": outputBoolean(), "live": outputBoolean(), "head": publicGitFingerprintOutputSchema()}
+	return map[string]any{"dirty": outputBoolean()}
 }
 
 func codeTreeOutputSchema() map[string]any {
 	properties := codeIdentityOutputSchema()
 	properties["paths"] = outputArray(outputString())
-	return closedOutput(properties, "worktree", "dirty", "live", "head", "paths")
+	return closedOutput(properties, "paths")
 }
 
 func codeReadOutputSchema() map[string]any {
@@ -244,15 +248,14 @@ func codeReadOutputSchema() map[string]any {
 	properties["total_lines"] = outputInteger()
 	properties["content"] = outputString()
 	properties["file_hash"] = outputString()
-	return closedOutput(properties, "worktree", "dirty", "live", "head", "path", "start_line", "end_line", "total_lines", "content", "file_hash")
+	return closedOutput(properties, "path", "start_line", "end_line", "total_lines", "content", "file_hash")
 }
 
 func codeSearchOutputSchema() map[string]any {
 	match := closedOutput(map[string]any{"path": outputString(), "line": outputInteger(), "snippet": outputString()}, "path", "line", "snippet")
 	properties := codeIdentityOutputSchema()
-	properties["paths_scanned"] = outputInteger()
 	properties["matches"] = outputArray(match)
-	return closedOutput(properties, "worktree", "dirty", "live", "head", "paths_scanned", "matches")
+	return closedOutput(properties, "matches")
 }
 
 func codeDiffOutputSchema() map[string]any {
@@ -260,5 +263,5 @@ func codeDiffOutputSchema() map[string]any {
 	properties["base"] = taskExecutionPublicHeadSchema()
 	properties["paths"] = outputArray(outputString())
 	properties["diff"] = outputString()
-	return closedOutput(properties, "worktree", "dirty", "live", "head", "base", "paths", "diff")
+	return closedOutput(properties, "base", "paths", "diff")
 }

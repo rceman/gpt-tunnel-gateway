@@ -122,8 +122,18 @@ func TestLocalCodeInspectionUsesCleanAncestorAndBoundedCommittedObjects(t *testi
 	}
 	var readProjection map[string]any
 	encoded, err := json.Marshal(read)
-	if err != nil || json.Unmarshal(encoded, &readProjection) != nil || readProjection["head"] != f.current[:8] {
-		t.Fatalf("code read did not expose the public 8-character head: %s %#v", encoded, readProjection)
+	if err != nil || json.Unmarshal(encoded, &readProjection) != nil {
+		t.Fatalf("code read projection failed to encode: %v %s", err, encoded)
+	}
+	// ADR134 (TSK669): selector-proven identity and clean-state filler stay
+	// internal; the public projection carries only content coordinates.
+	for _, echo := range []string{"head", "worktree", "live", "dirty", "paths_scanned"} {
+		if _, ok := readProjection[echo]; ok {
+			t.Fatalf("code read projection leaked echo/telemetry field %q: %s", echo, encoded)
+		}
+	}
+	if readProjection["file_hash"] == "" || readProjection["path"] != "tracked.txt" {
+		t.Fatalf("code read projection lost content identity: %s", encoded)
 	}
 	worktrees, err := f.service.CodeWorktree(ctx, CodeWorktreeInput{ProjectID: "example"})
 	if err != nil || len(worktrees.Items) != 1 || worktrees.Items[0].Head != f.current || worktrees.Pagination != nil {

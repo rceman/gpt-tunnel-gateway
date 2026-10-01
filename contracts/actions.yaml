@@ -935,22 +935,13 @@ domains:
                 diff:
                     type: string
                 dirty:
-                    type: boolean
-                head:
-                    ref: GitFingerprint
-                live:
+                    description: Present only when the inspected worktree carried uncommitted changes at observation time; absence means clean.
                     type: boolean
                 paths:
                     items:
                         type: string
                     type: array
-                worktree:
-                    type: string
             required:
-                - worktree
-                - dirty
-                - live
-                - head
                 - base
                 - paths
                 - diff
@@ -1003,28 +994,19 @@ domains:
                 content:
                     type: string
                 dirty:
+                    description: Present only when the inspected worktree carried uncommitted changes at observation time; absence means clean.
                     type: boolean
                 end_line:
                     type: integer
                 file_hash:
                     ref: NonGitDigestOrHandle
-                head:
-                    ref: GitFingerprint
-                live:
-                    type: boolean
                 path:
                     type: string
                 start_line:
                     type: integer
                 total_lines:
                     type: integer
-                worktree:
-                    type: string
             required:
-                - worktree
-                - dirty
-                - live
-                - head
                 - path
                 - start_line
                 - end_line
@@ -1095,10 +1077,7 @@ domains:
             additional_properties: false
             properties:
                 dirty:
-                    type: boolean
-                head:
-                    ref: GitFingerprint
-                live:
+                    description: Present only when the inspected worktree carried uncommitted changes at observation time; absence means clean.
                     type: boolean
                 matches:
                     items:
@@ -1116,16 +1095,7 @@ domains:
                             - snippet
                         type: object
                     type: array
-                paths_scanned:
-                    type: integer
-                worktree:
-                    type: string
             required:
-                - worktree
-                - dirty
-                - live
-                - head
-                - paths_scanned
                 - matches
             type: object
         - description: List bounded repository-relative files in a server-owned worktree.
@@ -1167,22 +1137,13 @@ domains:
             additional_properties: false
             properties:
                 dirty:
-                    type: boolean
-                head:
-                    ref: GitFingerprint
-                live:
+                    description: Present only when the inspected worktree carried uncommitted changes at observation time; absence means clean.
                     type: boolean
                 paths:
                     items:
                         type: string
                     type: array
-                worktree:
-                    type: string
             required:
-                - worktree
-                - dirty
-                - live
-                - head
                 - paths
             type: object
         - description: List bounded server-owned project worktree selectors.
@@ -6610,7 +6571,6 @@ domains:
           output:
             type: object
             properties:
-              configuration_revision: {ref: Revision}
               hooks:
                 type: array
                 items:
@@ -6618,10 +6578,10 @@ domains:
                   properties:
                     hook: {type: string, enum: [pre_task_submit, post_task_submit, pre_task_verify, post_task_verify, pre_task_integrate, post_task_integrate, post_agent_work_finished]}
                     description: {type: string}
-                    procedure: {type: string, min_length: 1, max_length: 64, pattern: '^[a-z][a-z0-9_]{0,63}$'}
+                    procedure: {type: string, min_length: 1, max_length: 64, pattern: '^[a-z][a-z0-9_]{0,63}$', description: Present only when a Procedure is bound to this Hook.}
                   required: [hook, description]
                   additional_properties: false
-            required: [configuration_revision, hooks]
+            required: [hooks]
             additional_properties: false
           metadata:
             selector: none
@@ -6638,12 +6598,11 @@ domains:
           output:
             type: object
             properties:
-              configuration_revision: {ref: Revision}
               hook: {type: string, enum: [pre_task_submit, post_task_submit, pre_task_verify, post_task_verify, pre_task_integrate, post_task_integrate, post_agent_work_finished]}
               description: {type: string}
               payload_schema: {json_value: true}
-              procedure: {type: string, min_length: 1, max_length: 64, pattern: '^[a-z][a-z0-9_]{0,63}$'}
-            required: [configuration_revision, hook, description, payload_schema]
+              procedure: {type: string, min_length: 1, max_length: 64, pattern: '^[a-z][a-z0-9_]{0,63}$', description: Present only when a Procedure is bound to this Hook.}
+            required: [hook, description, payload_schema]
             additional_properties: false
           metadata:
             selector: none
@@ -6701,7 +6660,6 @@ domains:
           output:
             type: object
             properties:
-              configuration_revision: {ref: Revision}
               procedures:
                 type: array
                 items:
@@ -6711,7 +6669,7 @@ domains:
                     summary: {type: string, min_length: 1, max_length: 256}
                   required: [name, summary]
                   additional_properties: false
-            required: [configuration_revision, procedures]
+            required: [procedures]
             additional_properties: false
           metadata:
             selector: none
@@ -6728,19 +6686,17 @@ domains:
           output:
             type: object
             properties:
-              configuration_revision: {ref: Revision}
               name: {type: string, min_length: 1, max_length: 64, pattern: '^[a-z][a-z0-9_]{0,63}$'}
               definition:
                 type: object
+                description: Compact definition projection; the callable input/output schemas live on the compiled procedure/<name> action contract.
                 properties:
                   script: {type: string, min_length: 1, max_length: 512}
                   summary: {type: string, min_length: 1, max_length: 256}
                   guide: {type: string, min_length: 1, max_length: 768}
-                  input: {json_value: true}
-                  output: {json_value: true}
-                required: [script, summary, guide, input, output]
+                required: [script, summary, guide]
                 additional_properties: false
-            required: [configuration_revision, name, definition]
+            required: [name, definition]
             additional_properties: false
           metadata:
             selector: none
