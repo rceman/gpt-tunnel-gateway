@@ -93,6 +93,11 @@ func (c Controller) restartGatewayAfterUpgradeDiagnosticsLocked(stopped bool, st
 		diagnostics.TargetPID = record.PID
 	}
 	readyErr := restartGatewayWaitFn(c.gatewayReadyURL(), true, 30*time.Second)
+	if readyErr == nil {
+		// Readiness answering on the endpoint is not proof the new process
+		// serves it; the endpoint owner must map to the installed binary.
+		readyErr = c.verifyGatewayEndpointCoherence()
+	}
 	diagnostics.Elapsed = time.Since(started)
 	diagnostics.ReadinessPassed = readyErr == nil
 	expected, evalErr := filepath.EvalSymlinks(c.Config.Controller.GatewayBinary)
