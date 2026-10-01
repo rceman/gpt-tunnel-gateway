@@ -15,8 +15,8 @@ import (
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 )
 
-func (s Store) readOnlyLock() (*lockfile.Lock, error) {
-	lock, err := lockfile.AcquireReadOnly(filepath.Join(s.Config.StateDir, "locks"), "hub-repository")
+func (s Store) readOnlyLock(ctx context.Context) (*lockfile.Lock, error) {
+	lock, err := lockfile.AcquireReadOnly(ctx, filepath.Join(s.Config.StateDir, "locks"), "hub-repository")
 	if err != nil {
 		return nil, errors.New("read-only hub lock unavailable")
 	}
@@ -72,7 +72,7 @@ func (s Store) ReadFileAtCommit(ctx context.Context, commit, path string) ([]byt
 	if err := model.ValidateCommitSHA(commit); err != nil {
 		return nil, err
 	}
-	lock, err := s.readOnlyLock()
+	lock, err := s.readOnlyLock(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +134,7 @@ func (s Store) History(ctx context.Context, path string, limit int) ([]map[strin
 	if limit < 1 || limit > s.Config.MaxListItems {
 		return nil, fmt.Errorf("invalid history limit")
 	}
-	lock, err := s.readOnlyLock()
+	lock, err := s.readOnlyLock(ctx)
 	if err != nil {
 		return nil, err
 	}

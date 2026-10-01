@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/config"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 	"github.com/rceman/gpt-tunnel-gateway/internal/testutil"
 )
@@ -199,4 +200,55 @@ func TestPostReadyHubSyncConvergesAfterRepositoryLockContention(t *testing.T) {
 	if !ready || attempts < 2 {
 		t.Fatalf("attempts=%d ready=%v phases=%v", attempts, ready, phases)
 	}
+}
+
+// TestPostReadyHubSyncConvergesWithRetiredProject is the GTW-JRN15 incident:
+// restarting with a retired project present previously parked forever on a
+// blocking shared lock taken while the pinned read snapshot held
+// hub-repository.lock. The convergence must now reach HUB_SYNC_READY.
+func TestPostReadyHubSyncConvergesWithRetiredProject(t *testing.T) {
+	bare, _, _ := testutil.RepoWithBareRemote(t)
+	c := testBootstrapConfig(t)
+	c.Hub.RepositoryURL = bare
+	c.Hub.Branch = "main"
+	c.Debug.Enabled = true
+	c.Projects = map[string]config.ProjectConfig{
+		"example": {
+			Root: t.TempDir(), Mirror: t.TempDir(), Remote: "origin",
+			DefaultBranch: "main", ProjectCode: "EXM", AirelaySessionKey: "example_master",
+		},
+	}
+	runtime, err := bootstrapGateway(c, nil, writeBootstrapConfig(t, c))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeBootstrap(t, runtime)
+	if err := runtime.service.Hub.Ensure(context.Background()); err != nil {
+		t.Fatalf("ensure managed Hub clone: %v", err)
+	}
+	if _, err := runtime.service.DebugRetireProject(context.Background(), "example", "retire for hub sync regression"); err != nil {
+		t.Fatalf("retire project: %v", err)
+	}
+	runtime.service.Config.Debug.Enabled = false
+
+	var mu sync.Mutex
+	var phases []string
+	collect := func(name string) {
+		mu.Lock()
+		defer mu.Unlock()
+		phases = append(phases, name)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := postReadyHubSyncContext(runtime.service, ctx, collect); err != nil {
+		t.Fatalf("convergence with retired project: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	for _, name := range phases {
+		if name == "HUB_SYNC_READY" {
+			return
+		}
+	}
+	t.Fatalf("HUB_SYNC_READY missing in phases=%v", phases)
 }

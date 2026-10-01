@@ -175,49 +175,64 @@ func (s *Service) DebugMigrateProjectConfigurations(ctx context.Context) error {
 }
 
 func (s *Service) SyncProjectRetirements(ctx context.Context) error {
+	pending, err := s.CollectSyncedProjectRetirements(ctx)
+	if err != nil {
+		return err
+	}
+	return s.PublishSyncedProjectRetirements(ctx, pending)
+}
+
+// CollectSyncedProjectRetirements performs the read-and-reconcile phase of
+// retirement synchronization: Hub enumeration, conflict validation, and all
+// Local/Shared durable writes. Hub reads reuse a pinned snapshot when the
+// caller provides one via hub.WithReadSnapshot. The returned records are the
+// Shared retirements whose Hub publish must run after that snapshot is
+// closed — publishing acquires the same exclusive repository lock a pinned
+// snapshot holds.
+func (s *Service) CollectSyncedProjectRetirements(ctx context.Context) ([]model.ProjectRetirement, error) {
 	if s == nil || s.Durability == nil {
-		return fmt.Errorf("Shared and Hub are required for project retirement synchronization")
+		return nil, fmt.Errorf("Shared and Hub are required for project retirement synchronization")
 	}
 	hubRecords, err := s.listHubProjectRetirements(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for _, record := range hubRecords {
 		shared, found, err := s.Durability.ReadSharedProjectRetirement(ctx, record.ProjectID)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if found && !sameProjectRetirementRecord(shared, record) {
-			return sqlitestore.ErrProjectRetirementConflict
+			return nil, sqlitestore.ErrProjectRetirementConflict
 		}
 		if err := s.Durability.BeginLocalProjectRetirement(ctx, record); err != nil {
-			return err
+			return nil, err
 		}
 		if !found {
 			if err := s.Durability.ImportSharedProjectRetirement(ctx, record); err != nil {
-				return err
+				return nil, err
 			}
 		}
 		if err := s.removeManagedProject(record.ProjectID); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	localRecords, err := s.Durability.ListLocalProjectRetirements(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for _, local := range localRecords {
 		record, found, err := s.Durability.ReadSharedProjectRetirement(ctx, local.ProjectID)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if found && record.Reason != local.Reason {
-			return sqlitestore.ErrProjectRetirementConflict
+			return nil, sqlitestore.ErrProjectRetirementConflict
 		}
 		if !found {
 			evidence, err := s.Durability.ReadProjectRetirementLegacyEpochEvidence(ctx, local.ProjectID)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			record = model.ProjectRetirement{
 				SchemaVersion: model.ProjectRetirementSchemaVersion, ProjectID: local.ProjectID, Revision: 1,
@@ -226,18 +241,27 @@ func (s *Service) SyncProjectRetirements(ctx context.Context) error {
 				LegacyCallbackEpochCount:    evidence.Count, LegacyCallbackEpochSHA256: evidence.SHA256,
 			}
 			if err := s.Durability.BeginLocalProjectRetirement(ctx, record); err != nil {
-				return err
+				return nil, err
 			}
 			record, _, err = s.Durability.RetireSharedProjectWithLegacyEpochEvidence(ctx, local.ProjectID, local.Reason, local.RetiredAt, evidence)
 			if err != nil {
-				return err
+				return nil, err
 			}
 		}
 	}
 	sharedRecords, err := s.Durability.ListSharedProjectRetirements(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	return sharedRecords, nil
+}
+
+// PublishSyncedProjectRetirements writes the Shared retirements collected by
+// CollectSyncedProjectRetirements to the Hub and marks their outbox entries.
+// It must run without a pinned Hub read snapshot: each publish is a Transact
+// that needs the exclusive repository lock, and its post-transaction
+// verification takes the shared read-only lock.
+func (s *Service) PublishSyncedProjectRetirements(ctx context.Context, sharedRecords []model.ProjectRetirement) error {
 	for _, record := range sharedRecords {
 		if err := s.Durability.BeginLocalProjectRetirement(ctx, record); err != nil {
 			return err

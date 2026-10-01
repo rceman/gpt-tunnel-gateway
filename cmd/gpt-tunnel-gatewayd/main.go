@@ -19,6 +19,7 @@ import (
 	debugdomain "github.com/rceman/gpt-tunnel-gateway/internal/debug"
 	"github.com/rceman/gpt-tunnel-gateway/internal/hub"
 	"github.com/rceman/gpt-tunnel-gateway/internal/mcp"
+	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/releaseartifacts"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
@@ -221,38 +222,47 @@ func postReadyHubEnsureContext(svc *service.Service, ctx context.Context, phase 
 		return err
 	}
 	readCtx := hub.WithReadSnapshot(ctx, snapshot)
-	plan, err := func() (*service.HubProjectConfigurationMigrationPlan, error) {
+	pending, plan, err := func() ([]model.ProjectRetirement, *service.HubProjectConfigurationMigrationPlan, error) {
 		defer func() { _ = snapshot.Close() }()
 		phase("POST_READY_PROJECT_RETIREMENT_SYNC")
-		if err := svc.SyncProjectRetirements(readCtx); err != nil {
+		pending, err := svc.CollectSyncedProjectRetirements(readCtx)
+		if err != nil {
 			startupErrorForPhase("POST_READY_PROJECT_RETIREMENT_SYNC", err)
-			return nil, err
+			return nil, nil, err
 		}
 		if svc.Config.Debug.Enabled {
 			complete, err := svc.Durability.ProjectConfigurationMigrationComplete(ctx)
 			if err != nil {
 				startupErrorForPhase("POST_READY_PROJECT_CONFIGURATION_MIGRATION", err)
-				return nil, err
+				return nil, nil, err
 			}
 			if !complete {
-				return nil, service.ErrProjectConfigurationMigrationDeferred
+				return nil, nil, service.ErrProjectConfigurationMigrationDeferred
 			}
 		} else {
 			phase("POST_READY_PROJECT_CONFIGURATION_MIGRATION")
 			if err := svc.Durability.MigrateProjectConfigurationToCanonical(ctx); err != nil {
 				startupErrorForPhase("POST_READY_PROJECT_CONFIGURATION_MIGRATION", err)
-				return nil, err
+				return nil, nil, err
 			}
 		}
 		phase("POST_READY_HUB_PROJECT_CONFIGURATION_MIGRATION")
 		plan, err := svc.PlanHubProjectConfigurationMigration(readCtx)
 		if err != nil {
 			startupErrorForPhase("POST_READY_HUB_PROJECT_CONFIGURATION_MIGRATION", err)
-			return nil, err
+			return nil, nil, err
 		}
-		return plan, nil
+		return pending, plan, nil
 	}()
 	if err != nil {
+		return err
+	}
+	// Writes run only after the pinned snapshot is released: each retirement
+	// publish is a Hub Transact that needs the same exclusive repository
+	// lock the snapshot holds, and its post-transaction verification takes
+	// the shared read-only lock.
+	if err := svc.PublishSyncedProjectRetirements(ctx, pending); err != nil {
+		startupErrorForPhase("POST_READY_PROJECT_RETIREMENT_SYNC", err)
 		return err
 	}
 	// The write transaction re-pins the remote revision under its own lock
