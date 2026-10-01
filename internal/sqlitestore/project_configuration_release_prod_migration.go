@@ -84,10 +84,17 @@ func (d *Databases) MigrateGTWReleaseProdProcedure(ctx context.Context) error {
 		if marshalErr != nil || wantedErr != nil {
 			return fmt.Errorf("canonical release_prod Procedure could not be encoded")
 		}
-		if string(current) != string(wanted) {
+		if string(current) == string(wanted) {
+			return d.setSharedUpgradeMigrationState(ctx, projectConfigurationReleaseProdMigrationID, "complete")
+		}
+		// The known predecessor differs from the canonical definition only
+		// in schema shape (the pre-TSK686 inline fingerprint fields): when
+		// Script/Summary/Guide still identify this Procedure, reconcile the
+		// drifted schemas through a normal configuration revision. A foreign
+		// Procedure under the same name still fails closed.
+		if existing.Script != definition.Script || existing.Summary != definition.Summary || existing.Guide != definition.Guide {
 			return fmt.Errorf("existing release_prod Procedure conflicts with the canonical migration")
 		}
-		return d.setSharedUpgradeMigrationState(ctx, projectConfigurationReleaseProdMigrationID, "complete")
 	}
 	nextRevision := revision
 	for _, probe := range []string{

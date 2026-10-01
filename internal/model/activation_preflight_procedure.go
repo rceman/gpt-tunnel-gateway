@@ -48,7 +48,7 @@ func ActivationPreflightProcedureOutputSchema(checkIDs []string) (map[string]any
 		enum[index] = id
 	}
 	fingerprintOutput := func() map[string]any {
-		return map[string]any{"type": "string", "minLength": 8, "maxLength": 64}
+		return map[string]any{"$ref": "GitFingerprint"}
 	}
 	return map[string]any{
 		"type": "object",

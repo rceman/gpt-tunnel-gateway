@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rceman/gpt-tunnel-gateway/internal/actioncontract"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/sqlitestore"
 )
@@ -175,4 +176,30 @@ func TestTSK606ActivateLocalDefinitionIsCanonical(t *testing.T) {
 	if len(required) != 3 {
 		t.Fatalf("activate_local required fields = %v", required)
 	}
+	// Compile through the real call-time contract path: fingerprint output
+	// fields must be GitFingerprint refs or the Procedure is uncallable.
+	compiled := compileTSK686Procedure(t, model.ActivateLocalProcedureName, definition)
+	if compiled.Output == nil {
+		t.Fatal("activate_local compiled without an output contract")
+	}
+}
+
+// compileTSK686Procedure compiles a Procedure definition through the real
+// actioncontract path that call-time resolution uses
+// (compileProcedureContract): canonical contract set +
+// CompileProcedureAction. Schema defects that only surface under the strict
+// compiler — like fingerprint fields declared as inline strings instead of
+// GitFingerprint — fail here, where ValidateProjectProcedureDefinition alone
+// misses them.
+func compileTSK686Procedure(t *testing.T, name string, definition model.ProjectProcedureDefinition) actioncontract.CompiledAction {
+	t.Helper()
+	contracts, err := actioncontract.LoadCanonical()
+	if err != nil {
+		t.Fatalf("canonical contracts unavailable: %v", err)
+	}
+	compiled, err := contracts.CompileProcedureAction("procedure/"+name, definition.Summary, definition.Guide, definition.Input, definition.Output)
+	if err != nil {
+		t.Fatalf("procedure/%s failed the canonical compiler: %v", name, err)
+	}
+	return compiled
 }

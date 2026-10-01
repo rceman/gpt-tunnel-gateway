@@ -51,12 +51,12 @@ func ReleaseProdProcedureOutputSchema(checkIDs []string) (map[string]any, error)
 		enum[index] = id
 	}
 	fingerprintOutput := func() map[string]any {
-		return map[string]any{"type": "string", "minLength": 8, "maxLength": 64}
+		return map[string]any{"$ref": "GitFingerprint"}
 	}
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"track":         map[string]any{"type": "string", "minLength": 1, "maxLength": 64},
+			"track":         map[string]any{"$ref": "EntityKeyAndReference"},
 			"source_commit": fingerprintOutput(),
 			"source_tree":   fingerprintOutput(),
 			"version":       map[string]any{"type": "string", "minLength": 1, "maxLength": 64},

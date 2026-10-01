@@ -245,3 +245,24 @@ func mustRead(t *testing.T, path string) []byte {
 	}
 	return data
 }
+
+// TestTSK686ActivationPreflightCompilesThroughRealCompiler exercises the
+// installed activation_preflight definition through the canonical
+// actioncontract compiler — the schema shape gates missed when only
+// ValidateProjectProcedureDefinition was exercised.
+func TestTSK686ActivationPreflightCompilesThroughRealCompiler(t *testing.T) {
+	output, err := model.ActivationPreflightProcedureOutputSchema(model.ActivationPreflightProcedureChecks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition := model.ProjectProcedureDefinition{
+		Script: "scripts/activation-preflight.py", Summary: "preflight", Guide: "preflight",
+		Input: model.ActivationPreflightProcedureInputSchema(), Output: output,
+	}
+	if err := model.ValidateProjectProcedureDefinition(definition); err != nil {
+		t.Fatalf("activation_preflight definition is invalid: %v", err)
+	}
+	if compiled := compileTSK686Procedure(t, model.ActivationPreflightProcedureName, definition); compiled.Output == nil {
+		t.Fatal("activation_preflight compiled without an output contract")
+	}
+}
