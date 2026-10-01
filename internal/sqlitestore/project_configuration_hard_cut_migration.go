@@ -70,7 +70,7 @@ func (d *Databases) MigrateProjectConfigurationToCanonical(ctx context.Context) 
 		return err
 	}
 	if state == "complete" {
-		return d.migrateGTWActivationProcedures(ctx)
+		return d.migrateGTWDeliveryProcedures(ctx)
 	}
 	if err := d.setSharedUpgradeMigrationState(ctx, projectConfigurationRetiredFieldMigrationID, "in_progress"); err != nil {
 		return err
@@ -203,15 +203,18 @@ func (d *Databases) MigrateProjectConfigurationToCanonical(ctx context.Context) 
 	if err := d.setSharedUpgradeMigrationState(ctx, projectConfigurationRetiredFieldMigrationID, "complete"); err != nil {
 		return err
 	}
-	return d.migrateGTWActivationProcedures(ctx)
+	return d.migrateGTWDeliveryProcedures(ctx)
 }
 
-// migrateGTWActivationProcedures installs the canonical GTW activation
-// Procedures in order: the disposable exact-source preflight first, then the
-// live activation that reuses it.
-func (d *Databases) migrateGTWActivationProcedures(ctx context.Context) error {
+// migrateGTWDeliveryProcedures installs the canonical GTW delivery
+// Procedures in order: the disposable exact-source preflight, the live
+// activation that reuses it, then the accepted-authority production release.
+func (d *Databases) migrateGTWDeliveryProcedures(ctx context.Context) error {
 	if err := d.MigrateGTWActivationPreflightProcedure(ctx); err != nil {
 		return err
 	}
-	return d.MigrateGTWActivateLocalProcedure(ctx)
+	if err := d.MigrateGTWActivateLocalProcedure(ctx); err != nil {
+		return err
+	}
+	return d.MigrateGTWReleaseProdProcedure(ctx)
 }
