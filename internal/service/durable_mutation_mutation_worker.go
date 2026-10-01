@@ -354,6 +354,170 @@ func durableMutationTerminal(status string) bool {
 	return status == "completed" || status == "failed" || status == "outcome_unknown"
 }
 
+// maxTaskVerificationAttempts bounds how many Operations one Session may
+// allocate for the same admitted task/test request before the terminal failed
+// receipt must be superseded by workflow action instead of another attempt.
+const maxTaskVerificationAttempts = 5
+
+// enqueueTaskVerificationAttempt allocates the durable Operation for one
+// admitted Task verification request. Duplicate calls attach to an in-flight
+// attempt or replay a completed/outcome_unknown attempt for the same exact
+// identity. A terminal failed attempt stays immutable: within the attempt
+// bound a distinct fresh Operation is minted, chained durably through the
+// shared admission coordinate and an explicit retried_from link, so retry
+// re-evaluates the candidate instead of replaying or rewriting the prior
+// failure.
+func (s *Service) enqueueTaskVerificationAttempt(ctx context.Context, kind, projectID string, input any, identity any) (durableMutationOperation, error) {
+	if err := model.ValidateProjectIdentifier(projectID); err != nil {
+		return durableMutationOperation{}, err
+	}
+	if s.Durability == nil {
+		return durableMutationOperation{}, fmt.Errorf("local durability is unavailable")
+	}
+	raw, err := json.Marshal(input)
+	if err != nil {
+		return durableMutationOperation{}, err
+	}
+	var identityRaw []byte
+	if identity != nil {
+		identityRaw, err = json.Marshal(identity)
+		if err != nil {
+			return durableMutationOperation{}, err
+		}
+	}
+	sessionID := AgentSessionID(ctx)
+	digest := durableMutationDigestWithIdentity(kind, sessionID, raw, identityRaw)
+	projectCode, err := s.localOperationProjectCode(ctx, projectID)
+	if err != nil {
+		return durableMutationOperation{}, err
+	}
+	admissionInputSHA256 := durableMutationInputSHA256(raw)
+	s.durableMutationMu.Lock()
+	defer s.durableMutationMu.Unlock()
+	now := time.Now().UTC()
+	allocate := func(mutationID string) (string, error) {
+		allocated, allocateErr := s.Durability.AllocateLocalOperationWithAdmissionCoordinate(ctx, projectID, projectCode, mutationID, kind, sessionID, admissionInputSHA256, now)
+		if allocateErr != nil {
+			return "", allocateErr
+		}
+		return allocated.OperationID, nil
+	}
+	enqueue := func(operation durableMutationOperation) (durableMutationOperation, error) {
+		s.startDurableMutationWorker()
+		s.enqueueDurableMutation(operation.OperationID)
+		return operation, nil
+	}
+	newOperation := func(operationID, mutationID, retriedFrom string) durableMutationOperation {
+		operation := durableMutationOperation{
+			SchemaVersion: durableMutationSchemaVersion,
+			OperationID:   operationID,
+			MutationID:    mutationID,
+			Kind:          kind,
+			RequestSHA256: mutationID,
+			SessionID:     sessionID,
+			ProjectID:     projectID,
+			Input:         raw,
+			Status:        "accepted",
+			RetriedFrom:   retriedFrom,
+			CreatedAt:     now,
+			UpdatedAt:     now,
+		}
+		if identityRaw != nil {
+			operation.CapturedState = string(identityRaw)
+		}
+		return operation
+	}
+	operationID, err := allocate(digest)
+	if err != nil {
+		return durableMutationOperation{}, err
+	}
+	operation, readErr := s.readDurableMutation(operationID)
+	if readErr == nil {
+		if operation.RequestSHA256 != digest || operation.Kind != kind {
+			return durableMutationOperation{}, fmt.Errorf("durable mutation identity mismatch")
+		}
+		if operation.Status != "failed" {
+			// In-flight duplicates attach; completed and outcome_unknown
+			// attempts replay truthfully rather than minting a new attempt.
+			if !durableMutationTerminal(operation.Status) {
+				return enqueue(operation)
+			}
+			return operation, nil
+		}
+	} else if os.IsNotExist(readErr) {
+		operation = newOperation(operationID, digest, "")
+		if err := s.writeDurableMutation(operation); err != nil {
+			return durableMutationOperation{}, err
+		}
+		return enqueue(operation)
+	} else {
+		return durableMutationOperation{}, readErr
+	}
+	// The admitted attempt for this exact identity is terminally failed.
+	// Admit a bounded fresh attempt only while nothing equivalent is in
+	// flight, and preserve every prior attempt untouched.
+	equivalents, err := s.Durability.ListLocalOperationsByAdmissionCoordinate(ctx, projectID, kind, sessionID, admissionInputSHA256)
+	if err != nil {
+		return durableMutationOperation{}, err
+	}
+	var latestAny, latestSameIdentity durableMutationOperation
+	foundAny, foundSameIdentity := false, false
+	for _, local := range equivalents {
+		equivalent, equivalentErr := s.equivalentDurableMutation(local, projectCode, sessionID, raw)
+		if equivalentErr != nil {
+			return durableMutationOperation{}, equivalentErr
+		}
+		if !foundAny || durableMutationTurnAfter(equivalent, latestAny) {
+			latestAny = equivalent
+			foundAny = true
+		}
+		if equivalent.CapturedState == string(identityRaw) && (!foundSameIdentity || durableMutationTurnAfter(equivalent, latestSameIdentity)) {
+			latestSameIdentity = equivalent
+			foundSameIdentity = true
+		}
+	}
+	if foundAny && !durableMutationTerminal(latestAny.Status) {
+		if foundSameIdentity && latestSameIdentity.OperationID == latestAny.OperationID {
+			return enqueue(latestAny)
+		}
+		return durableMutationOperation{}, fmt.Errorf("Task verification is already in flight")
+	}
+	if foundSameIdentity {
+		switch latestSameIdentity.Status {
+		case "completed", "outcome_unknown":
+			return latestSameIdentity, nil
+		}
+	}
+	if len(equivalents) >= maxTaskVerificationAttempts {
+		return durableMutationOperation{}, fmt.Errorf("Task verification attempt bound reached; the failed receipt stays terminal and requires explicit workflow action")
+	}
+	fresh, err := freshDurableMutationDigest(kind, sessionID, raw)
+	if err != nil {
+		return durableMutationOperation{}, err
+	}
+	freshID, err := allocate(fresh)
+	if err != nil {
+		return durableMutationOperation{}, err
+	}
+	if existing, existErr := s.readDurableMutation(freshID); existErr == nil {
+		if existing.RequestSHA256 != fresh || existing.Kind != kind {
+			return durableMutationOperation{}, fmt.Errorf("durable mutation identity mismatch")
+		}
+		return enqueue(existing)
+	} else if !os.IsNotExist(existErr) {
+		return durableMutationOperation{}, existErr
+	}
+	retriedFrom := operation.OperationID
+	if foundSameIdentity {
+		retriedFrom = latestSameIdentity.OperationID
+	}
+	retry := newOperation(freshID, fresh, retriedFrom)
+	if err := s.writeDurableMutation(retry); err != nil {
+		return durableMutationOperation{}, err
+	}
+	return enqueue(retry)
+}
+
 func (s *Service) findLatestEquivalentDurableMutation(ctx context.Context, kind, projectID, projectCode, sessionID string, input []byte) (durableMutationOperation, bool, error) {
 	inputSHA256 := durableMutationInputSHA256(input)
 	localOperations, err := s.Durability.ListLocalOperationsByAdmissionCoordinate(ctx, projectID, kind, sessionID, inputSHA256)
@@ -363,29 +527,9 @@ func (s *Service) findLatestEquivalentDurableMutation(ctx context.Context, kind,
 	var latest durableMutationOperation
 	found := false
 	for _, local := range localOperations {
-		if local.ProjectCode != projectCode || local.AdmissionSessionID != sessionID || local.AdmissionInputSHA256 != inputSHA256 {
-			return durableMutationOperation{}, false, fmt.Errorf("equivalent Local operation %s admission coordinate mismatch", local.OperationID)
-		}
-		operation, readErr := s.readDurableMutation(local.OperationID)
-		if readErr != nil {
-			return durableMutationOperation{}, false, fmt.Errorf("equivalent Local operation %s is corrupt: %w", local.OperationID, readErr)
-		}
-		operationCode, operationNumber, parseErr := model.ParseOperationID(operation.OperationID)
-		if parseErr != nil || operationCode != local.ProjectCode || operationNumber != local.OperationNumber || operation.OperationID != local.OperationID || operation.ProjectID != local.ProjectID || operation.Kind != local.Kind || operation.RequestSHA256 != local.MutationID {
-			return durableMutationOperation{}, false, fmt.Errorf("equivalent Local operation %s identity mismatch", local.OperationID)
-		}
-		if operation.SessionID != sessionID {
-			return durableMutationOperation{}, false, fmt.Errorf("equivalent Local operation %s session coordinate mismatch", local.OperationID)
-		}
-		if !durableMutationKnownStatus(operation.Status) {
-			return durableMutationOperation{}, false, fmt.Errorf("equivalent Local operation %s has invalid status", local.OperationID)
-		}
-		equivalent, inputErr := durableMutationInputEqual(operation.Input, input)
-		if inputErr != nil {
-			return durableMutationOperation{}, false, fmt.Errorf("equivalent Local operation %s input is corrupt: %w", local.OperationID, inputErr)
-		}
-		if !equivalent {
-			return durableMutationOperation{}, false, fmt.Errorf("equivalent Local operation %s admission input mismatch", local.OperationID)
+		operation, err := s.equivalentDurableMutation(local, projectCode, sessionID, input)
+		if err != nil {
+			return durableMutationOperation{}, false, err
 		}
 		if !found || durableMutationTurnAfter(operation, latest) {
 			latest = operation
@@ -393,6 +537,35 @@ func (s *Service) findLatestEquivalentDurableMutation(ctx context.Context, kind,
 		}
 	}
 	return latest, found, nil
+}
+
+func (s *Service) equivalentDurableMutation(local sqlitestore.LocalOperation, projectCode, sessionID string, input []byte) (durableMutationOperation, error) {
+	inputSHA256 := durableMutationInputSHA256(input)
+	if local.ProjectCode != projectCode || local.AdmissionSessionID != sessionID || local.AdmissionInputSHA256 != inputSHA256 {
+		return durableMutationOperation{}, fmt.Errorf("equivalent Local operation %s admission coordinate mismatch", local.OperationID)
+	}
+	operation, readErr := s.readDurableMutation(local.OperationID)
+	if readErr != nil {
+		return durableMutationOperation{}, fmt.Errorf("equivalent Local operation %s is corrupt: %w", local.OperationID, readErr)
+	}
+	operationCode, operationNumber, parseErr := model.ParseOperationID(operation.OperationID)
+	if parseErr != nil || operationCode != local.ProjectCode || operationNumber != local.OperationNumber || operation.OperationID != local.OperationID || operation.ProjectID != local.ProjectID || operation.Kind != local.Kind || operation.RequestSHA256 != local.MutationID {
+		return durableMutationOperation{}, fmt.Errorf("equivalent Local operation %s identity mismatch", local.OperationID)
+	}
+	if operation.SessionID != sessionID {
+		return durableMutationOperation{}, fmt.Errorf("equivalent Local operation %s session coordinate mismatch", local.OperationID)
+	}
+	if !durableMutationKnownStatus(operation.Status) {
+		return durableMutationOperation{}, fmt.Errorf("equivalent Local operation %s has invalid status", local.OperationID)
+	}
+	equivalent, inputErr := durableMutationInputEqual(operation.Input, input)
+	if inputErr != nil {
+		return durableMutationOperation{}, fmt.Errorf("equivalent Local operation %s input is corrupt: %w", local.OperationID, inputErr)
+	}
+	if !equivalent {
+		return durableMutationOperation{}, fmt.Errorf("equivalent Local operation %s admission input mismatch", local.OperationID)
+	}
+	return operation, nil
 }
 
 func durableMutationKnownStatus(status string) bool {

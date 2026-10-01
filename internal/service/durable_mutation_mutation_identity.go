@@ -24,8 +24,12 @@ type durableMutationOperation struct {
 	Error          string          `json:"error,omitempty"`
 	RecoveryReason string          `json:"recovery_reason,omitempty"`
 	CapturedState  string          `json:"captured_state,omitempty"`
-	CreatedAt      time.Time       `json:"created_at"`
-	UpdatedAt      time.Time       `json:"updated_at"`
+	// RetriedFrom durably links a fresh attempt to the prior terminal failed
+	// Operation for the same admitted request. The prior record is never
+	// rewritten.
+	RetriedFrom string    `json:"retried_from,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 func durableMutationPath(stateDir, operationID string) string {
