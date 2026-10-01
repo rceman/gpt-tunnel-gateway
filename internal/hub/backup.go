@@ -19,7 +19,7 @@ type BackupResult struct {
 // Backup creates a recoverable local bundle of the configured authoritative
 // branch without changing the managed checkout or remote branch.
 func (s Store) Backup(ctx context.Context, prefix string) (BackupResult, error) {
-	lock, err := s.readOnlyLock()
+	lock, err := s.readOnlyLock(ctx)
 	if err != nil {
 		return BackupResult{}, err
 	}

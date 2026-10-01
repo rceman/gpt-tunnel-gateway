@@ -35,7 +35,7 @@ type readSnapshotContextKey struct{}
 // ReadSnapshot opens one validated managed root and captures its remote
 // revision. Callers must close the snapshot when the graph read is complete.
 func (s Store) ReadSnapshot(ctx context.Context) (*ReadSnapshot, error) {
-	lock, err := s.readOnlyLock()
+	lock, err := s.readOnlyLock(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +62,7 @@ func (s Store) ReadSnapshot(ctx context.Context) (*ReadSnapshot, error) {
 // contacting its configured remote. It is used by post-cutover bootstrap;
 // callers must have a local mirror and remote-tracking ref already present.
 func (s Store) ReadLocalSnapshot(ctx context.Context) (*ReadSnapshot, error) {
-	lock, err := s.readOnlyLock()
+	lock, err := s.readOnlyLock(ctx)
 	if err != nil {
 		return nil, err
 	}

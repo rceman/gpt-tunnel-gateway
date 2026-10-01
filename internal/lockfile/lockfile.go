@@ -3,6 +3,7 @@ package lockfile
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -131,18 +132,30 @@ func IsBusy(err error) bool {
 
 // AcquireReadOnly coordinates with writers without creating or modifying the
 // lock file. Read-only callers must run after the owning controller has
-// created the lock files during startup.
-func AcquireReadOnly(dir, name string) (*Lock, error) {
+// created the lock files during startup. Acquisition is ctx-bounded: a held
+// exclusive lock causes a bounded poll instead of a blocking flock that
+// could outlive the caller's deadline.
+func AcquireReadOnly(ctx context.Context, dir, name string) (*Lock, error) {
 	path := filepath.Join(dir, name+".lock")
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, ErrReadOnlyUnavailable
-	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_SH); err != nil {
+	for {
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, ErrReadOnlyUnavailable
+		}
+		err = syscall.Flock(int(f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB)
+		if err == nil {
+			return &Lock{file: f}, nil
+		}
 		f.Close()
-		return nil, ErrReadOnlyUnavailable
+		if !IsBusy(err) {
+			return nil, ErrReadOnlyUnavailable
+		}
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("read-only lock %s: %w", name, ctx.Err())
+		case <-time.After(25 * time.Millisecond):
+		}
 	}
-	return &Lock{file: f}, nil
 }
 
 func Acquire(dir, name string) (*Lock, error) {
