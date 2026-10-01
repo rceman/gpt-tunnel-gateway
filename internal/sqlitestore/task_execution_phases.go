@@ -280,11 +280,6 @@ func (d *Databases) TransitionTaskExecutionState(ctx context.Context, state mode
 	return err
 }
 
-// CreateTaskExecutionStateWithPhase atomically creates a Task execution state
-// and its first phase event. It exists for the bounded pre-execution
-// reconciliation path that records an already-landed Task which never had a
-// current-model execution; the phase event explicitly carries the historical
-// evidence instead of fabricating lifecycle receipts.
 func (d *Databases) CreateTaskExecutionStateWithPhase(ctx context.Context, state model.TaskExecutionState, phase TaskExecutionPhase) error {
 	if d == nil || d.Local == nil {
 		return fmt.Errorf("local store is unavailable")

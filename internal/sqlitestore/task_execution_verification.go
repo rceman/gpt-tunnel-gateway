@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	upstream "github.com/rceman/go-sqlite-store/store"
@@ -36,6 +37,78 @@ func (d *Databases) ReadLatestTaskExecutionVerification(ctx context.Context, pro
 		return model.TaskExecutionVerification{}, false, fmt.Errorf("Task verification receipt identity mismatch")
 	}
 	return receipt, true, nil
+}
+
+// ReadLatestTaskExecutionVerificationTolerant reads the latest verification
+// like ReadLatestTaskExecutionVerification, but a structurally well-formed
+// pre-Procedure-gate receipt that fails the current contract is returned with
+// legacy=true instead of erroring. It exists only so history read paths stay
+// usable for tasks verified under the pre-execution model; current-era writes
+// still go through the strict decode and validation.
+func (d *Databases) ReadLatestTaskExecutionVerificationTolerant(ctx context.Context, projectID, taskID string) (model.TaskExecutionVerification, bool, bool, error) {
+	receipt, found, err := d.ReadLatestTaskExecutionVerification(ctx, projectID, taskID)
+	if err == nil {
+		return receipt, found, false, nil
+	}
+	rows, qerr := d.Local.Query(ctx, `SELECT receipt_json FROM local_task_execution_verifications WHERE project_id=? AND task_id=? AND NOT EXISTS(SELECT 1 FROM local_project_retirements WHERE project_id=local_task_execution_verifications.project_id) ORDER BY attempt_revision DESC LIMIT 1`, projectID, taskID)
+	if qerr != nil || len(rows.Rows) != 1 || len(rows.Rows[0]) != 1 {
+		return model.TaskExecutionVerification{}, false, false, err
+	}
+	text, ok := rows.Rows[0][0].(string)
+	if !ok {
+		return model.TaskExecutionVerification{}, false, false, err
+	}
+	legacy, lerr := decodeTaskExecutionVerificationLegacy(text)
+	if lerr != nil {
+		return model.TaskExecutionVerification{}, false, false, err
+	}
+	if legacy.ProjectID != projectID || legacy.TaskID != taskID {
+		return model.TaskExecutionVerification{}, false, false, err
+	}
+	return legacy, true, true, nil
+}
+
+// decodeTaskExecutionVerificationLegacy validates only the structural shape of
+// a persisted verification receipt — present identity fields, well-formed
+// digests/heads, sane timing, and executed gates with exit codes — without the
+// current Procedure-gate cross-bindings that pre-execution receipts predate.
+func decodeTaskExecutionVerificationLegacy(text string) (model.TaskExecutionVerification, error) {
+	var receipt model.TaskExecutionVerification
+	if err := json.Unmarshal([]byte(text), &receipt); err != nil {
+		return model.TaskExecutionVerification{}, fmt.Errorf("invalid Task verification receipt payload")
+	}
+	if model.ValidateProjectIdentifier(receipt.ProjectID) != nil || model.ValidateCanonicalTaskID(receipt.TaskID) != nil || model.ValidateObjectIdentifier(receipt.OperationID) != nil {
+		return model.TaskExecutionVerification{}, fmt.Errorf("invalid legacy Task verification identity")
+	}
+	if model.ValidateSHA256(receipt.TaskRevisionSHA256) != nil || model.ValidateSHA256(receipt.GateProfileSHA256) != nil || model.ValidateCommitSHA(receipt.BaseHead) != nil || model.ValidateCommitSHA(receipt.CandidateHead) != nil || model.ValidateCommitSHA(receipt.CandidateTree) != nil {
+		return model.TaskExecutionVerification{}, fmt.Errorf("invalid legacy Task verification digests")
+	}
+	if model.ValidateBranch(receipt.Branch) != nil || !strings.HasPrefix(receipt.Branch, "task/"+receipt.TaskID+"-") || receipt.TaskRevision < 1 || receipt.AttemptRevision < 1 || receipt.CodeReviewID < 1 || receipt.TestsReviewID < 0 || receipt.RebaseReviewID < 0 {
+		return model.TaskExecutionVerification{}, fmt.Errorf("invalid legacy Task verification revision authority")
+	}
+	if receipt.StartedAt.IsZero() || receipt.CompletedAt.IsZero() || !receipt.CompletedAt.After(receipt.StartedAt) {
+		return model.TaskExecutionVerification{}, fmt.Errorf("invalid legacy Task verification timing")
+	}
+	switch receipt.Outcome {
+	case model.TaskExecutionVerificationSucceeded:
+		if receipt.Error != "" || len(receipt.Gates) == 0 {
+			return model.TaskExecutionVerification{}, fmt.Errorf("invalid legacy Task verification outcome evidence")
+		}
+	case model.TaskExecutionVerificationFailed, model.TaskExecutionVerificationInterrupted:
+	default:
+		return model.TaskExecutionVerification{}, fmt.Errorf("invalid legacy Task verification outcome")
+	}
+	seen := map[string]struct{}{}
+	for _, gate := range receipt.Gates {
+		if _, dup := seen[gate.ID]; dup {
+			return model.TaskExecutionVerification{}, fmt.Errorf("invalid legacy Task verification gates")
+		}
+		seen[gate.ID] = struct{}{}
+		if gate.ID == "" || (gate.Execution != "" && gate.Execution != "executed") || (gate.ReceiptDigest != "" && model.ValidateSHA256(gate.ReceiptDigest) != nil) || (gate.ContractDigest != "" && model.ValidateSHA256(gate.ContractDigest) != nil) || (gate.TreeID != "" && model.ValidateCommitSHA(gate.TreeID) != nil) {
+			return model.TaskExecutionVerification{}, fmt.Errorf("invalid legacy Task verification gate evidence")
+		}
+	}
+	return receipt, nil
 }
 
 // TaskExecutionVerificationReceipt is the raw persisted verification row —

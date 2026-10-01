@@ -192,14 +192,38 @@ func tsk660TestJournals() taskPreExecutionJournalEvidence {
 	}
 }
 
-func tsk660MintedState(task model.TaskAuthoring) model.TaskExecutionState {
+func tsk660IntegratedState(task model.TaskAuthoring) model.TaskExecutionState {
 	return model.TaskExecutionState{
 		TaskID: tsk660TaskID, ProjectID: config.GTWProjectID,
 		TaskRevision: task.Revision, TaskRevisionSHA256: task.RevisionSHA256,
 		Status: model.TaskExecutionIntegrated, Stage: "code",
-		Worktree: tsk660ExecutionWorktree, BaseHead: tsk660MainBase, Head: tsk660MainBase,
+		Worktree: tsk660ExecutionWorktree, BaseHead: tsk660MainBase, Head: tsk660FinalSubmissionHead,
 		Branch: tsk660ExecutionBranch, Agent: config.GTWWorkerAgentID,
-		ExecutionRevision: tsk660ExecutionRevision, UpdatedAt: time.Now().UTC(),
+		ExecutionRevision: tsk660IntegratedRevision, UpdatedAt: time.Now().UTC(),
+	}
+}
+
+func tsk660TestPhase(task model.TaskAuthoring, revision int, stage, status, head, kind, decision, comment string, at time.Time) sqlitestore.TaskExecutionPhase {
+	return sqlitestore.TaskExecutionPhase{
+		TaskID: tsk660TaskID, ProjectID: config.GTWProjectID,
+		ExecutionRevision: revision, Stage: stage, Status: status, Head: head,
+		Branch: tsk660ExecutionBranch, TaskRevisionSHA256: task.RevisionSHA256,
+		EventKind: kind, Decision: decision, Comment: comment, CreatedAt: at,
+	}
+}
+
+func tsk660TestPhases(task model.TaskAuthoring) taskPreExecutionPhases {
+	base := time.Date(2026, 9, 22, 9, 35, 0, 0, time.UTC)
+	return taskPreExecutionPhases{
+		code: []sqlitestore.TaskExecutionPhase{
+			tsk660TestPhase(task, 2, "code", model.TaskExecutionAwaitingReview, tsk660FirstSubmissionHead, "submission", "", "", base),
+			tsk660TestPhase(task, 3, "code", model.TaskExecutionChangesRequested, tsk660FirstSubmissionHead, "rework", "", "rework directive", base.Add(time.Minute)),
+			tsk660TestPhase(task, 4, "code", model.TaskExecutionAwaitingReview, tsk660FinalSubmissionHead, "submission", "", "", base.Add(2*time.Minute)),
+			tsk660TestPhase(task, 5, "code", model.TaskExecutionReadyForVerification, tsk660FinalSubmissionHead, "review", "accept", "review comment", base.Add(3*time.Minute)),
+		},
+		integration: []sqlitestore.TaskExecutionPhase{
+			tsk660TestPhase(task, 9, "integration", model.TaskExecutionIntegrated, tsk660ImplementationCommit, "integration", "accept", "", base.Add(4*time.Minute)),
+		},
 	}
 }
 
@@ -208,89 +232,150 @@ func tsk660TestVerification() taskPreExecutionVerificationProof {
 		OperationID:   tsk660LegacyVerificationOperation,
 		CandidateHead: tsk660LegacyVerificationCandidate,
 		ReceiptSHA256: strings.Repeat("c", 64),
+		CompletedAt:   time.Now().UTC(),
 	}
 }
 
-func TestTSK660ValidationFreshPlannedTaskHasNoState(t *testing.T) {
+func tsk660TestCompletionEvent(t *testing.T, task model.TaskAuthoring, journals taskPreExecutionJournalEvidence, verification taskPreExecutionVerificationProof, phases taskPreExecutionPhases, recordedAt time.Time) sqlitestore.TaskLifecycleEvent {
+	t.Helper()
+	phasesSHA, err := tsk660PhasesDigest(phases)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract, err := tsk660CompletionContract(task, journals, verification, phasesSHA, strings.Repeat("d", 40))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sqlitestore.TaskLifecycleEvent{
+		OperationID: "task-complete-test", ProjectID: config.GTWProjectID, TaskID: tsk660TaskID,
+		Revision: tsk660TaskRevision, EventKind: sqlitestore.TaskLifecycleEventKindComplete,
+		FromStatus: model.TaskAuthoringPlanned, ToStatus: model.TaskAuthoringDone,
+		Actor: "HOM_GTW_L_test", Reason: tsk660ReconcileReason, Contract: contract, RecordedAt: recordedAt,
+	}
+}
+
+func TestTSK660ValidationRequiresExactExistingLifecycle(t *testing.T) {
 	task := tsk660TestTask()
 	journals := tsk660TestJournals()
 	verification := tsk660TestVerification()
-	evidence, already, err := validateTSK660State(task, model.TaskExecutionState{}, false, taskPreExecutionPhases{}, verification, false, journals)
+	state := tsk660IntegratedState(task)
+	phases := tsk660TestPhases(task)
+	phasesSHA, err := tsk660PhasesDigest(phases)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, already, err := validateTSK660State(task, state, true, phases, phasesSHA, verification, sqlitestore.TaskLifecycleEvent{}, false, false, journals)
 	if err != nil || already || evidence.Kind != "" {
 		t.Fatalf("fresh validation evidence=%#v already=%v err=%v", evidence, already, err)
 	}
 	// A wrong task identity fails closed.
 	wrong := task
 	wrong.Revision = 7
-	if _, _, err := validateTSK660State(wrong, model.TaskExecutionState{}, false, taskPreExecutionPhases{}, verification, false, journals); err == nil {
+	if _, _, err := validateTSK660State(wrong, state, true, phases, phasesSHA, verification, sqlitestore.TaskLifecycleEvent{}, false, false, journals); err == nil {
 		t.Fatal("revised authoring record passed pre-execution validation")
 	}
-	// Fabricated normal-lifecycle evidence fails closed.
-	if _, _, err := validateTSK660State(task, model.TaskExecutionState{}, false, taskPreExecutionPhases{code: []sqlitestore.TaskExecutionPhase{{TaskID: tsk660TaskID}}}, verification, false, journals); err == nil {
-		t.Fatal("code-phase evidence passed pre-execution validation")
+	// No execution state fails closed — this reconcile never mints one.
+	if _, _, err := validateTSK660State(task, model.TaskExecutionState{}, false, phases, phasesSHA, verification, sqlitestore.TaskLifecycleEvent{}, false, false, journals); err == nil {
+		t.Fatal("missing execution state passed pre-execution validation")
 	}
-	if _, _, err := validateTSK660State(task, model.TaskExecutionState{}, false, taskPreExecutionPhases{}, verification, true, journals); err == nil {
+	// Reset evidence fails closed.
+	if _, _, err := validateTSK660State(task, state, true, phases, phasesSHA, verification, sqlitestore.TaskLifecycleEvent{}, false, true, journals); err == nil {
 		t.Fatal("reset-phase evidence passed pre-execution validation")
 	}
-	// No execution state but a done authoring record is ambiguous: fail closed.
+	// Divergent real-state fields fail closed.
+	tampered := state
+	tampered.Head = strings.Repeat("e", 40)
+	if _, _, err := validateTSK660State(task, tampered, true, phases, phasesSHA, verification, sqlitestore.TaskLifecycleEvent{}, false, false, journals); err == nil {
+		t.Fatal("tampered execution head passed pre-execution validation")
+	}
+	// Missing or extra lifecycle phases fail closed.
+	short := phases
+	short.code = phases.code[:3]
+	if _, _, err := validateTSK660State(task, state, true, short, phasesSHA, verification, sqlitestore.TaskLifecycleEvent{}, false, false, journals); err == nil {
+		t.Fatal("truncated phase history passed pre-execution validation")
+	}
+	extra := phases
+	extra.tests = []sqlitestore.TaskExecutionPhase{{TaskID: tsk660TaskID}}
+	if _, _, err := validateTSK660State(task, state, true, extra, phasesSHA, verification, sqlitestore.TaskLifecycleEvent{}, false, false, journals); err == nil {
+		t.Fatal("extra phase evidence passed pre-execution validation")
+	}
+	// A done authoring record without the completion event fails closed.
 	done := task
 	done.Status = model.TaskAuthoringDone
-	if _, _, err := validateTSK660State(done, model.TaskExecutionState{}, false, taskPreExecutionPhases{}, verification, false, journals); err == nil {
-		t.Fatal("done authoring record without execution state passed")
+	if _, _, err := validateTSK660State(done, state, true, phases, phasesSHA, verification, sqlitestore.TaskLifecycleEvent{}, false, false, journals); err == nil {
+		t.Fatal("done authoring without completion event passed")
 	}
 }
 
 func TestTSK660ValidationReplayRequiresExactReceipt(t *testing.T) {
 	task := tsk660TestTask()
 	journals := tsk660TestJournals()
-	state := tsk660MintedState(task)
 	verification := tsk660TestVerification()
-	comment, err := tsk660PhaseComment(task, journals, verification, strings.Repeat("d", 40))
+	phases := tsk660TestPhases(task)
+	phasesSHA, err := tsk660PhasesDigest(phases)
 	if err != nil {
 		t.Fatal(err)
 	}
-	phase := sqlitestore.TaskExecutionPhase{
-		TaskID: tsk660TaskID, ProjectID: config.GTWProjectID, ExecutionRevision: tsk660ExecutionRevision,
-		Stage: "integration", Status: model.TaskExecutionIntegrated, Head: tsk660ImplementationCommit,
-		Branch: state.Branch, TaskRevisionSHA256: state.TaskRevisionSHA256,
-		EventKind: "integration", Decision: "accept", Comment: comment, CreatedAt: state.UpdatedAt,
-	}
-	phases := taskPreExecutionPhases{integration: []sqlitestore.TaskExecutionPhase{phase}}
-	evidence, already, err := validateTSK660State(task, state, true, phases, verification, false, journals)
+	recordedAt := time.Now().UTC()
+	event := tsk660TestCompletionEvent(t, task, journals, verification, phases, recordedAt)
+	done := task
+	done.Status = model.TaskAuthoringDone
+	state := tsk660IntegratedState(task)
+	state.Status = model.TaskExecutionDone
+	state.ExecutionRevision = tsk660CompletedRevision
+	state.UpdatedAt = recordedAt
+	evidence, already, err := validateTSK660State(done, state, true, phases, phasesSHA, verification, event, true, false, journals)
 	if err != nil || !already {
 		t.Fatalf("exact replay rejected: evidence=%#v already=%v err=%v", evidence, already, err)
 	}
-	if evidence.ImplementationCommit != tsk660ImplementationCommit || evidence.MainBase != tsk660MainBase || evidence.ImplementationTree != tsk660ImplementationTree || evidence.LegacyVerificationOperation != tsk660LegacyVerificationOperation {
+	if evidence.ImplementationCommit != tsk660ImplementationCommit || evidence.MainBase != tsk660MainBase || evidence.ImplementationTree != tsk660ImplementationTree || evidence.LegacyVerificationOperation != tsk660LegacyVerificationOperation || evidence.ExecutionRevision != tsk660IntegratedRevision {
 		t.Fatalf("replay evidence identity=%#v", evidence)
 	}
-	// Tampered head: fail.
-	tampered := phase
-	tampered.Head = strings.Repeat("e", 40)
-	if _, _, err := validateTSK660State(task, state, true, taskPreExecutionPhases{integration: []sqlitestore.TaskExecutionPhase{tampered}}, verification, false, journals); err == nil {
+	// Tampered integration head fails the exact lifecycle check.
+	tamperedPhases := phases
+	bad := phases.integration[0]
+	bad.Head = strings.Repeat("e", 40)
+	tamperedPhases.integration = []sqlitestore.TaskExecutionPhase{bad}
+	badSHA, _ := tsk660PhasesDigest(tamperedPhases)
+	if _, _, err := validateTSK660State(done, state, true, tamperedPhases, badSHA, verification, event, true, false, journals); err == nil {
 		t.Fatal("tampered phase head passed replay validation")
 	}
-	// Fabricated non-reconciliation comment: fail.
-	fake := phase
-	fake.Comment = `task-pre-execution-reconciliation:{"schema_version":1}`
-	if _, _, err := validateTSK660State(task, state, true, taskPreExecutionPhases{integration: []sqlitestore.TaskExecutionPhase{fake}}, verification, false, journals); err == nil {
+	// A fabricated non-reconciliation contract fails.
+	fakeEvent := event
+	fakeEvent.Contract = []byte(`{"schema_version":1}`)
+	if _, _, err := validateTSK660State(done, state, true, phases, phasesSHA, verification, fakeEvent, true, false, journals); err == nil {
 		t.Fatal("fabricated evidence envelope passed replay validation")
 	}
 	// Different gate journals recorded than present: fail.
 	changedJournals := journals
 	changedJournals.GateKeys = []string{"GTW-JRN99"}
-	if _, _, err := validateTSK660State(task, state, true, phases, verification, false, changedJournals); err == nil {
+	if _, _, err := validateTSK660State(done, state, true, phases, phasesSHA, verification, event, true, false, changedJournals); err == nil {
 		t.Fatal("drifted gate evidence passed replay validation")
 	}
 	// A different persisted receipt than the minted one fails replay.
 	changedVerification := verification
 	changedVerification.ReceiptSHA256 = strings.Repeat("f", 64)
-	if _, _, err := validateTSK660State(task, state, true, phases, changedVerification, false, journals); err == nil {
+	if _, _, err := validateTSK660State(done, state, true, phases, phasesSHA, changedVerification, event, true, false, journals); err == nil {
 		t.Fatal("drifted legacy verification identity passed replay validation")
 	}
-	// A normal in-progress state fails closed.
+	// A changed phase history (digest mismatch) fails replay.
+	otherPhases := phases
+	other := phases.integration[0]
+	other.Comment = "tampered"
+	otherPhases.integration = []sqlitestore.TaskExecutionPhase{other}
+	// Other fails the exact check before the digest — use a comment-free
+	// tamper surface: different created_at keeps structure valid but moves the digest.
+	other = phases.integration[0]
+	other.CreatedAt = phases.integration[0].CreatedAt.Add(time.Second)
+	otherPhases.integration = []sqlitestore.TaskExecutionPhase{other}
+	otherSHA, _ := tsk660PhasesDigest(otherPhases)
+	if _, _, err := validateTSK660State(done, state, true, otherPhases, otherSHA, verification, event, true, false, journals); err == nil {
+		t.Fatal("drifted phase digest passed replay validation")
+	}
+	// A non-terminal execution state fails closed.
 	progress := state
 	progress.Status = model.TaskExecutionInProgress
-	if _, _, err := validateTSK660State(task, progress, true, phases, verification, false, journals); err == nil {
+	if _, _, err := validateTSK660State(done, progress, true, phases, phasesSHA, verification, event, true, false, journals); err == nil {
 		t.Fatal("non-terminal execution state passed pre-execution validation")
 	}
 }

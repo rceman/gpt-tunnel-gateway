@@ -443,9 +443,12 @@ func taskExecutionVerificationBinds(receipt model.TaskExecutionVerification, sta
 }
 
 func (s *Service) taskExecutionVerificationProofCurrent(ctx context.Context, state model.TaskExecutionState) (model.TaskExecutionVerification, bool, string, error) {
-	receipt, found, err := s.Durability.ReadLatestTaskExecutionVerification(ctx, state.ProjectID, state.TaskID)
+	receipt, found, legacy, err := s.Durability.ReadLatestTaskExecutionVerificationTolerant(ctx, state.ProjectID, state.TaskID)
 	if err != nil {
 		return model.TaskExecutionVerification{}, false, "", err
+	}
+	if legacy {
+		return receipt, false, "Task verification receipt predates the current gate contract", nil
 	}
 	if !found {
 		return model.TaskExecutionVerification{}, false, "no Task verification receipt", nil
