@@ -139,7 +139,7 @@ func (s *Service) TaskExecutionTestAsync(ctx context.Context, in TaskExecutionTe
 	if err != nil {
 		return TaskExecutionTestReceipt{}, err
 	}
-	operation, err := s.enqueueTypedDurableMutationWithIdentity(ctx, "task-execution-test", in.ProjectID, in, admission.identity)
+	operation, err := s.enqueueTaskVerificationAttempt(ctx, "task-execution-test", in.ProjectID, in, admission.identity)
 	if err != nil {
 		return TaskExecutionTestReceipt{}, err
 	}
