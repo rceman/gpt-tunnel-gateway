@@ -88,7 +88,19 @@ func procUID(pid int) (uint32, error) {
 	}
 	return 0, fmt.Errorf("process UID unavailable")
 }
-func alive(pid int) bool { return syscall.Kill(pid, 0) == nil }
+func alive(pid int) bool {
+	if syscall.Kill(pid, 0) != nil {
+		return false
+	}
+	// A zombie holds a process-table entry but is dead for lifecycle
+	// purposes; it cannot be signaled or serve its endpoint.
+	if data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat")); err == nil {
+		if closeParen := bytes.LastIndexByte(data, ')'); closeParen >= 0 && closeParen+2 < len(data) {
+			return data[closeParen+2] != 'Z'
+		}
+	}
+	return true
+}
 
 func expectedCommandLine(name, executable, configPath string) string {
 	if name == "gateway" && configPath != "" {

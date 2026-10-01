@@ -25,6 +25,16 @@ func (c Controller) startProcess(name, binary string, args, env []string) error 
 		c.processEvent(name, binary, "error", "process_start_failed", existing.PID, "process already running", err)
 		return err
 	}
+	if name == "gateway" {
+		// A stale managed daemon can hold the configured endpoint outside the
+		// PID record; a fresh spawn would fail to bind while the stale owner
+		// still answers readiness. Retire provable managed orphans first and
+		// fail closed on anything unproven.
+		if err := c.retireStaleGatewayEndpointOwners(); err != nil {
+			c.processEvent(name, binary, "error", "process_start_failed", 0, "stale endpoint owner blocked start", err)
+			return err
+		}
+	}
 	if err := fsutil.EnsureDir(c.Config.Controller.PIDDir, 0o700); err != nil {
 		return err
 	}
@@ -124,6 +134,10 @@ func (c Controller) Start() error {
 		return err
 	}
 	if err := waitURL(c.gatewayReadyURL(), true, 30*time.Second); err != nil {
+		_ = c.stopProcess("gateway", c.Config.Controller.GatewayBinary)
+		return err
+	}
+	if err := c.verifyGatewayEndpointCoherence(); err != nil {
 		_ = c.stopProcess("gateway", c.Config.Controller.GatewayBinary)
 		return err
 	}
