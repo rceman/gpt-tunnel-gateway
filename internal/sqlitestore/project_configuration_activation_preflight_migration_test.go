@@ -127,6 +127,9 @@ func TestTSK627ActivationPreflightMigrationIsIdempotent(t *testing.T) {
 	if err := db.MigrateGTWE2EProcedure(ctx); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.MigrateGTWE2EProcedureV2(ctx); err != nil {
+		t.Fatal(err)
+	}
 	first := tsk627ReadGTWConfiguration(t, db)
 	if err := db.MigrateGTWActivationPreflightProcedure(ctx); err != nil {
 		t.Fatalf("idempotent re-run failed: %v", err)

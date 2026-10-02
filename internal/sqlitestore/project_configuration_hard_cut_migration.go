@@ -224,5 +224,8 @@ func (d *Databases) migrateGTWDeliveryProcedures(ctx context.Context) error {
 	if err := d.MigrateGTWE2EProcedure(ctx); err != nil {
 		return err
 	}
+	if err := d.MigrateGTWE2EProcedureV2(ctx); err != nil {
+		return err
+	}
 	return d.MigrateGTWProcedureSchemas(ctx)
 }
