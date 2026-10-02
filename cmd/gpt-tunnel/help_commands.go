@@ -35,10 +35,11 @@ Commands
   gpt-tunnel admin session revoke <SESSION>
   gpt-tunnel guide
   gpt-tunnel agent register --relay <SESSION>
+  gpt-tunnel session attach <PROJECT_CODE> <ROLE> <AGENT_ID> [--label LABEL]
   gpt-tunnel task <read|current|submit-code|submit-rebase> ...
 
 Worker Task submission is one production+tests candidate through submit-code after focused/affected checks and scripts/test-fast.py; Lead owns task/test full verification.
 
-  gpt-tunnel {format|check|test|verify|work|project|plan|adr|task|agent|journal|git|admin|daemon} ...
+  gpt-tunnel {format|check|test|verify|work|project|plan|adr|task|agent|journal|git|admin|daemon|session} ...
 `)
 }

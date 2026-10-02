@@ -160,6 +160,9 @@ func (s *Server) registerOperatorCLIRoutes(mux *http.ServeMux) {
 	registerOperatorJSONRoute(mux, "/operator/agent/status", s, func(ctx context.Context, in operatorAgentStatusRequest) (any, error) {
 		return s.Service.AgentStatus(ctx, in.ProjectID)
 	})
+	registerOperatorJSONRoute(mux, "/operator/session/attach", s, func(ctx context.Context, in service.SessionAttachInput) (any, error) {
+		return s.Service.SessionAttach(ctx, in)
+	})
 	registerOperatorJSONRoute(mux, "/operator/journal/migrate", s, func(ctx context.Context, in service.JournalMigrateInput) (any, error) {
 		return s.Service.JournalMigrate(ctx, in)
 	})

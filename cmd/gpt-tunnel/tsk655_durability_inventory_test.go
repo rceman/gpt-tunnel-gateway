@@ -72,6 +72,7 @@ func TestTSK665Gate20OperatorCLIDurabilityInventory(t *testing.T) {
 		{Path: "project token", Boundary: "operator-token daemon HTTP", Access: "DAEMON_API", Rationale: "daemon resolves stable project bootstrap grants"},
 		{Path: "project update", Boundary: "operator-token daemon HTTP", Access: "DAEMON_API", Rationale: "daemon owns durable project code and config updates"},
 		{Path: "project workflow-policy-read", Boundary: "operator-token daemon HTTP", Access: "DAEMON_API", Rationale: "daemon reads canonical Shared Rules and configuration"},
+		{Path: "session attach", Boundary: "operator-token daemon HTTP", Access: "DAEMON_API", Rationale: "daemon owns durable managed-role Session authority and Agent runtime bindings"},
 		{Path: "task current", Boundary: "session-authorized MCP HTTP", Access: "DAEMON_API", Rationale: "daemon owns Local TaskExecution state"},
 		{Path: "task read", Boundary: "session-authorized MCP HTTP", Access: "DAEMON_API", Rationale: "daemon reads canonical Shared Task state"},
 		{Path: "task submit-code", Boundary: "durable daemon HTTP admission", Access: "DAEMON_API", Rationale: "daemon owns Worker submission admission"},
@@ -119,6 +120,7 @@ func TestTSK665Gate20OperatorCLIDurabilityInventory(t *testing.T) {
 		{file: "task_commands.go", function: "task", argsIndex: 0, pathPrefix: "task"},
 		{file: "admin_commands.go", function: "admin", argsIndex: 1, pathPrefix: "admin session"},
 		{file: "daemon_commands.go", function: "daemon", argsIndex: 0, pathPrefix: "daemon"},
+		{file: "session_commands.go", function: "session", argsIndex: 0, pathPrefix: "session"},
 	}
 	for _, assertion := range caseAssertions {
 		actual := tsk665SwitchStringCases(t, assertion.file, assertion.function, assertion.argsIndex, assertion.tagName)
@@ -135,7 +137,7 @@ func TestTSK665Gate20OperatorCLIDurabilityInventory(t *testing.T) {
 		}
 	}
 	mainCases := tsk665SwitchStringCases(t, "main.go", "main", -1, "group")
-	wantMainCases := []string{"adr", "agent", "daemon", "git", "journal", "plan", "project", "task", "test", "check", "format", "verify", "work"}
+	wantMainCases := []string{"adr", "agent", "daemon", "git", "journal", "plan", "project", "session", "task", "test", "check", "format", "verify", "work"}
 	sort.Strings(mainCases)
 	sort.Strings(wantMainCases)
 	if strings.Join(mainCases, "\x00") != strings.Join(wantMainCases, "\x00") {
