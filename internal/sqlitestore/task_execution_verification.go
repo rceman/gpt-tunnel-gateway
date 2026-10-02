@@ -72,6 +72,13 @@ func (d *Databases) ReadLatestTaskExecutionVerificationTolerant(ctx context.Cont
 // a persisted verification receipt — present identity fields, well-formed
 // digests/heads, sane timing, and executed gates with exit codes — without the
 // current Procedure-gate cross-bindings that pre-execution receipts predate.
+// DecodeTaskExecutionVerificationLegacy exposes the bounded structural
+// decoder to the transition reconciliation so it can validate historical
+// receipts the current Procedure-gate contract rejects.
+func DecodeTaskExecutionVerificationLegacy(text string) (model.TaskExecutionVerification, error) {
+	return decodeTaskExecutionVerificationLegacy(text)
+}
+
 func decodeTaskExecutionVerificationLegacy(text string) (model.TaskExecutionVerification, error) {
 	var receipt model.TaskExecutionVerification
 	if err := json.Unmarshal([]byte(text), &receipt); err != nil {

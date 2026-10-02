@@ -225,7 +225,7 @@ func (s *Server) registerDebugActions() error {
 	}
 	if err := s.RegisterGenericAction(GenericAction{
 		Path:         "debug/task-pre-execution-reconcile",
-		Description:  "Reconcile the exact Planner-authorized already-landed pre-execution TSK660 without fabricating normal lifecycle receipts.",
+		Description:  "Reconcile the exact Planner-authorized already-landed pre-execution Tasks (TSK660, TSK589, TSK594, TSK593) without fabricating normal lifecycle receipts.",
 		InputSchema:  debugTaskPreExecutionReconcileInputSchema(),
 		OutputSchema: debugTaskPreExecutionReconcileOutputSchema(),
 		Annotations: ToolAnnotations{
@@ -435,24 +435,24 @@ func debugTaskBootstrapReconcileOutputSchema() map[string]any {
 }
 
 func debugTaskPreExecutionReconcileInputSchema() map[string]any {
-	key := str("Only the exact Planner-authorized pre-execution Task may be reconciled.")
-	key["enum"] = []any{"GTW-TSK660"}
+	key := str("Only an exact Planner-authorized pre-execution Task may be reconciled.")
+	key["enum"] = []any{"GTW-TSK660", "GTW-TSK589", "GTW-TSK594", "GTW-TSK593"}
 	return obj(map[string]any{"key": key}, "key")
 }
 
 func debugTaskPreExecutionReconcileOutputSchema() map[string]any {
 	key := outputString()
-	key["enum"] = []any{"GTW-TSK660"}
+	key["enum"] = []any{"GTW-TSK660", "GTW-TSK589", "GTW-TSK594", "GTW-TSK593"}
 	head := outputString()
 	head["minLength"], head["maxLength"], head["pattern"] = 8, 8, `^[0-9a-f]{8}$`
 	journal := outputString()
 	journal["pattern"] = `^GTW-JRN[0-9]+$`
 	evidence := outputArray(journal)
-	evidence["minItems"], evidence["maxItems"] = 3, 8
+	evidence["minItems"], evidence["maxItems"] = 2, 8
 	return closedOutput(map[string]any{
 		"key":                key,
 		"status":             outputEnum("integrated"),
-		"execution_revision": integer("Exact reconciled execution revision.", 10, 10),
+		"execution_revision": integer("Exact reconciled execution revision.", 8, 15),
 		"integration_head":   head,
 		"evidence":           evidence,
 		"already_reconciled": outputBoolean(),

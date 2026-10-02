@@ -205,7 +205,7 @@ func TestDebugTaskPreExecutionReconcileContractIsExact(t *testing.T) {
 		t.Fatalf("pre-execution task key schema=%#v", properties["key"])
 	}
 	values, enumOK := key["enum"].([]any)
-	if !enumOK || !slices.Equal(values, []any{"GTW-TSK660"}) {
+	if !enumOK || !slices.Equal(values, []any{"GTW-TSK589", "GTW-TSK593", "GTW-TSK594", "GTW-TSK660"}) {
 		t.Fatalf("pre-execution task key schema=%#v", properties["key"])
 	}
 	adaptedInput, err := server.actionContractSet().AdaptInput("debug/task-pre-execution-reconcile", map[string]any{"key": "GTW-TSK660"})
@@ -229,15 +229,16 @@ func TestDebugTaskPreExecutionReconcileContractIsExact(t *testing.T) {
 		}
 	}
 	output, err := server.actionContractSet().AdaptOutput("debug/task-pre-execution-reconcile", map[string]any{
-		"key": "GTW-TSK660", "status": "integrated", "execution_revision": 1,
+		"key": "GTW-TSK660", "status": "integrated", "execution_revision": 10,
 		"integration_head": "899abc90", "evidence": []string{"GTW-JRN14", "GTW-JRN16", "GTW-JRN17"}, "already_reconciled": false,
 	})
 	outputObject, ok := output.(map[string]any)
-	if err != nil || !ok || outputObject["integration_head"] != "899abc90" || outputObject["execution_revision"] != json.Number("1") {
+	if err != nil || !ok || outputObject["integration_head"] != "899abc90" || outputObject["execution_revision"] != json.Number("10") {
 		t.Fatalf("pre-execution output mapping=%#v err=%v", output, err)
 	}
 	for _, bad := range []map[string]any{
-		{"key": "GTW-TSK660", "status": "integrated", "execution_revision": 2, "integration_head": "899abc90", "evidence": []string{"GTW-JRN14", "GTW-JRN16", "GTW-JRN17"}, "already_reconciled": false},
+		{"key": "GTW-TSK660", "status": "integrated", "execution_revision": 7, "integration_head": "899abc90", "evidence": []string{"GTW-JRN14", "GTW-JRN16", "GTW-JRN17"}, "already_reconciled": false},
+		{"key": "GTW-TSK660", "status": "integrated", "execution_revision": 16, "integration_head": "899abc90", "evidence": []string{"GTW-JRN14", "GTW-JRN16", "GTW-JRN17"}, "already_reconciled": false},
 		{"key": "GTW-TSK660", "status": "done", "execution_revision": 1, "integration_head": "899abc90", "evidence": []string{"GTW-JRN14", "GTW-JRN16", "GTW-JRN17"}, "already_reconciled": false},
 		{"key": "GTW-TSK660", "status": "integrated", "execution_revision": 1, "integration_head": "899abc90", "evidence": []string{"GTW-JRN14", "GTW-JRN16"}, "already_reconciled": false},
 	} {
