@@ -14,15 +14,34 @@ import (
 
 const projectConfigurationE2EMigrationID = "project_configuration_e2e_procedure_v1"
 
+// projectConfigurationE2EMigrationV2ID re-runs the converge on hosts where the
+// v1 marker completed while the e2e output schema still declared the Track as
+// an owning-project EntityKeyAndReference (GTW-OPR4017 / TSK695). Hosts that
+// never installed the definition converge through v1 directly.
+const projectConfigurationE2EMigrationV2ID = "project_configuration_e2e_procedure_v2"
+
 // MigrateGTWE2EProcedure installs the canonical e2e Procedure into the GTW
 // self-host ProjectConfiguration (TSK693, JRN25). It runs once under a Shared
 // upgrade marker and commits a normal project-configuration lifecycle
 // revision so Hub converges through the regular Shared outbox path.
 func (d *Databases) MigrateGTWE2EProcedure(ctx context.Context) error {
+	return d.migrateGTWE2EProcedureWithMarker(ctx, projectConfigurationE2EMigrationID)
+}
+
+// MigrateGTWE2EProcedureV2 converges the canonical e2e Procedure definition on
+// hosts whose v1 install ran before the output schema fix (TSK695). Rewrites
+// only when Script/Summary/Guide match the canonical identity; fails closed on
+// a foreign definition; commits a normal configuration revision + hub_outbox
+// row when the stored definition drifts.
+func (d *Databases) MigrateGTWE2EProcedureV2(ctx context.Context) error {
+	return d.migrateGTWE2EProcedureWithMarker(ctx, projectConfigurationE2EMigrationV2ID)
+}
+
+func (d *Databases) migrateGTWE2EProcedureWithMarker(ctx context.Context, markerID string) error {
 	if d == nil || d.Shared == nil {
 		return fmt.Errorf("Shared store is required for ProjectConfiguration e2e migration")
 	}
-	state, err := d.projectConfigurationMigrationState(ctx, projectConfigurationE2EMigrationID)
+	state, err := d.projectConfigurationMigrationState(ctx, markerID)
 	if err != nil {
 		return err
 	}
@@ -36,7 +55,7 @@ func (d *Databases) MigrateGTWE2EProcedure(ctx context.Context) error {
 	if len(rows.Rows) == 0 {
 		return nil
 	}
-	if err := d.setSharedUpgradeMigrationState(ctx, projectConfigurationE2EMigrationID, "in_progress"); err != nil {
+	if err := d.setSharedUpgradeMigrationState(ctx, markerID, "in_progress"); err != nil {
 		return err
 	}
 	if len(rows.Rows) != 1 || len(rows.Rows[0]) != 2 {
@@ -68,7 +87,7 @@ func (d *Databases) MigrateGTWE2EProcedure(ctx context.Context) error {
 			return fmt.Errorf("canonical e2e Procedure could not be encoded")
 		}
 		if string(current) == string(wanted) {
-			return d.setSharedUpgradeMigrationState(ctx, projectConfigurationE2EMigrationID, "complete")
+			return d.setSharedUpgradeMigrationState(ctx, markerID, "complete")
 		}
 		if existing.Script != definition.Script || existing.Summary != definition.Summary || existing.Guide != definition.Guide {
 			return fmt.Errorf("existing e2e Procedure conflicts with the canonical migration")
@@ -116,5 +135,5 @@ func (d *Databases) MigrateGTWE2EProcedure(ctx context.Context) error {
 	}); err != nil {
 		return err
 	}
-	return d.setSharedUpgradeMigrationState(ctx, projectConfigurationE2EMigrationID, "complete")
+	return d.setSharedUpgradeMigrationState(ctx, markerID, "complete")
 }

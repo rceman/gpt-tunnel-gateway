@@ -162,12 +162,13 @@ def verify_snapshot(track_view: dict, want: dict, pending: bool) -> dict:
 
 
 def receipt(target_project: str, track: str, view: dict, want: dict) -> dict:
-    # The stored review projects compact fingerprints; the receipt binds the
-    # exact full fingerprints the Planner approved.
+    # The receipt names the foreign Track as an opaque bounded string; the
+    # contract cannot use EntityKeyAndReference because output references
+    # resolve against the Procedure-owning project only.
     return {
         "op": "track_accept",
         "target_project": target_project,
-        "track": track,
+        "target_track": track,
         "revision": view["revision"],
         "head": want["head"],
         "tree": want["tree"],
