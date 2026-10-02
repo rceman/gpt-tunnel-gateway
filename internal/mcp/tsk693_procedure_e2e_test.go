@@ -68,17 +68,35 @@ func tsk693PendingTrack(t *testing.T, fixture *tsk571HTTPFixture) (string, map[s
 	return track.ID, review
 }
 
-func tsk693RunScript(t *testing.T, script, dir string, input map[string]any) (int, string, map[string]any) {
+// tsk693WriteProcedureInputFile marshals the real ProcedureInputEnvelope the
+// executor writes ({input, context}) — TSK694: feeding the bare input map
+// masked the live unwrap defect.
+func tsk693WriteProcedureInputFile(t *testing.T, inputPath string, input map[string]any, context map[string]any) {
 	t.Helper()
-	inputPath := filepath.Join(dir, "input.json")
-	outputPath := filepath.Join(dir, "output.json")
-	encoded, err := json.Marshal(input)
+	if context == nil {
+		context = map[string]any{
+			"project":                "example",
+			"operation":              "EXM-OPR1",
+			"session":                "HOM_EXM_P_test0",
+			"configuration_revision": 1,
+			"resolved_references":    map[string]any{},
+		}
+	}
+	envelope := map[string]any{"input": input, "context": context}
+	encoded, err := json.Marshal(envelope)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(inputPath, encoded, 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func tsk693RunScript(t *testing.T, script, dir string, input map[string]any) (int, string, map[string]any) {
+	t.Helper()
+	inputPath := filepath.Join(dir, "input.json")
+	outputPath := filepath.Join(dir, "output.json")
+	tsk693WriteProcedureInputFile(t, inputPath, input, nil)
 	command := exec.CommandContext(context.Background(), "python3", script)
 	command.Dir = dir
 	command.Env = []string{
@@ -241,6 +259,57 @@ func TestTSK693E2ERejectsNonLoopbackAndDrift(t *testing.T) {
 	}
 	if view := readView(); view["status"] != model.TrackAccepted {
 		t.Fatalf("Track did not become accepted: %#v", view)
+	}
+}
+
+// TestTSK694E2ERejectsRawInputWithoutEnvelope locks the TSK693 defect class:
+// the file must carry the real {input,context} envelope; a bare input map or a
+// missing context fails closed before any network interaction.
+func TestTSK694E2ERejectsRawInputWithoutEnvelope(t *testing.T) {
+	t.Setenv("GPT_TUNNEL_SESSION", "")
+	fixture := tsk693PrepareFixture(t)
+	planner := fixture.sessions[durableSession.RolePlanner]
+	trackID, _ := tsk693PendingTrack(t, fixture)
+	script := tsk693ScriptPath(t)
+	readView := func() map[string]any {
+		return tsk593ActionResult(t, fixture.call(t, fixture.sessions[durableSession.RoleLead], "track/read", map[string]any{"key": trackID}))
+	}
+	input := tsk693Input(fixture, readView(), planner, trackID)
+
+	// A bare input map (the pre-TSK694 test shape) must fail closed.
+	dir := t.TempDir()
+	raw, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "input.json"), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.CommandContext(context.Background(), "python3", script)
+	command.Dir = dir
+	command.Env = []string{"LC_ALL=C", "PATH=/usr/bin:/bin", "GTW_PROCEDURE_INPUT_FILE=" + filepath.Join(dir, "input.json"), "GTW_PROCEDURE_OUTPUT_FILE=" + filepath.Join(dir, "output.json")}
+	var stderr strings.Builder
+	command.Stderr = &stderr
+	if runErr := command.Run(); runErr == nil {
+		t.Fatal("bare input file without the executor envelope was accepted")
+	}
+	if !strings.Contains(stderr.String(), "envelope") {
+		t.Fatalf("bare-input rejection lacks envelope reason: %s", stderr.String())
+	}
+
+	// A malformed context also fails closed before mutation.
+	dir = t.TempDir()
+	tsk693WriteProcedureInputFile(t, filepath.Join(dir, "input.json"), input, map[string]any{})
+	command = exec.CommandContext(context.Background(), "python3", script)
+	command.Dir = dir
+	command.Env = []string{"LC_ALL=C", "PATH=/usr/bin:/bin", "GTW_PROCEDURE_INPUT_FILE=" + filepath.Join(dir, "input.json"), "GTW_PROCEDURE_OUTPUT_FILE=" + filepath.Join(dir, "output.json")}
+	stderr.Reset()
+	command.Stderr = &stderr
+	if runErr := command.Run(); runErr == nil {
+		t.Fatal("envelope with empty context was accepted")
+	}
+	if view := readView(); view["status"] != model.TrackReviewPending {
+		t.Fatalf("envelope rejection mutated the Track: %#v", view)
 	}
 }
 

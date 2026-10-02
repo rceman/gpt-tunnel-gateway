@@ -42,7 +42,15 @@ def read_input() -> dict:
     value = json.loads(data)
     if not isinstance(value, dict):
         raise RuntimeError("procedure input is not an object")
-    return value
+    # The executor writes a ProcedureInputEnvelope: {input, context} where
+    # context carries project/session/operation/configuration_revision.
+    context = value.get("context")
+    if not isinstance(context, dict) or not context.get("session") or not context.get("project"):
+        raise RuntimeError("procedure input envelope context is missing")
+    inner = value.get("input")
+    if not isinstance(inner, dict):
+        raise RuntimeError("procedure input envelope input is missing")
+    return inner
 
 
 def write_output(value: dict) -> None:
