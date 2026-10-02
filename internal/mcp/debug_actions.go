@@ -427,7 +427,7 @@ func debugTaskBootstrapReconcileOutputSchema() map[string]any {
 	return closedOutput(map[string]any{
 		"key":                key,
 		"status":             outputEnum("integrated"),
-		"execution_revision": integer("Exact reconciled execution revision.", 8, 15),
+		"execution_revision": integer("Exact reconciled execution revision.", 3, 3),
 		"integration_head":   head,
 		"evidence":           evidence,
 		"already_reconciled": outputBoolean(),
