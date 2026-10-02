@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/rceman/gpt-tunnel-gateway/internal/actioncontract"
+	"github.com/rceman/gpt-tunnel-gateway/internal/authority"
 	"github.com/rceman/gpt-tunnel-gateway/internal/model"
 	"github.com/rceman/gpt-tunnel-gateway/internal/service"
 	durableSession "github.com/rceman/gpt-tunnel-gateway/internal/session"
@@ -36,11 +37,18 @@ func (s *Server) addProcedureActions(ctx context.Context, entries map[string]gen
 			return fmt.Errorf("compile configured Procedure %q: %w", name, err)
 		}
 		name, definition, configurationRevision := name, definition, configuration.Revision
+		// The e2e Procedure is the Planner-approval relay (TSK693, JRN25):
+		// Lead/Worker sessions must not be able to invoke it as a
+		// self-approval path even when they hold the target Planner facts.
+		authorityRole := actionRoleWorkflow
+		if name == model.GTWE2EProcedureName {
+			authorityRole = durableSession.RolePlanner
+		}
 		entries[path] = genericActionEntry{
 			GenericAction: GenericAction{
 				Path:            path,
 				Description:     definition.Summary,
-				AuthorityRole:   actionRoleWorkflow,
+				AuthorityRole:   authorityRole,
 				SessionBound:    true,
 				SessionRequired: true,
 				Annotations: ToolAnnotations{
@@ -51,6 +59,11 @@ func (s *Server) addProcedureActions(ctx context.Context, entries map[string]gen
 					projectID, err := s.boundConfigurationProject(ctx)
 					if err != nil {
 						return nil, err
+					}
+					if name == model.GTWE2EProcedureName {
+						if err := authority.RequirePlanner(ctx); err != nil {
+							return nil, err
+						}
 					}
 					return s.Service.ProcedureExecutionStart(ctx, service.ProcedureExecutionStartInput{
 						ProjectID: projectID, Name: name, Definition: definition,
