@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -75,7 +76,7 @@ func tsk688ReceiptJSON(t *testing.T, spec taskReconcileSpec, want taskReconcileR
 		TaskRevisionSHA256: task.RevisionSHA256,
 		BaseHead:           spec.mainBase,
 		CandidateHead:      want.CandidateHead,
-		CandidateTree:      spec.implTree,
+		CandidateTree:      want.CandidateTree,
 		Branch:             spec.branch,
 		GateProfileSHA256:  strings.Repeat("1", 64),
 		Outcome:            want.Outcome,
@@ -376,6 +377,16 @@ func TestTSK688ReceiptSetRejections(t *testing.T) {
 						t.Fatal(err)
 					}
 				}},
+				{name: "wrong candidate tree fails", wantErr: true, setup: func(t *testing.T, db *sqlitestore.Databases) {
+					tsk688SeedReceipts(t, db, spec, task)
+					row := tsk688ReceiptJSON(t, spec, spec.receipts[len(spec.receipts)-1], task, func(r *model.TaskExecutionVerification) { r.CandidateTree = strings.Repeat("9", 40) })
+					if _, err := db.Local.Batch(context.Background(), []upstream.Statement{{
+						SQL:  `UPDATE local_task_execution_verifications SET receipt_json=? WHERE task_id=? AND operation_id=?`,
+						Args: []any{row, spec.taskID, spec.successReceipt},
+					}}); err != nil {
+						t.Fatal(err)
+					}
+				}},
 				{name: "failing gate on succeeded receipt fails", wantErr: true, setup: func(t *testing.T, db *sqlitestore.Databases) {
 					tsk688SeedReceipts(t, db, spec, task)
 					row := tsk688ReceiptJSON(t, spec, spec.receipts[len(spec.receipts)-1], task, func(r *model.TaskExecutionVerification) { r.Gates[0].ExitCode = 1 })
@@ -477,7 +488,13 @@ func tsk688GuideService(t *testing.T, db *sqlitestore.Databases) *Service {
 // TestTSK594GuidePolicyProof verifies the semantic proof accepts the accepted
 // RUL7/RUL8 projections and rejects stale/unbound/removed-authority guides.
 func TestTSK594GuidePolicyProof(t *testing.T) {
-	agentText := "Lead owns dispatch, review, verification and integration; Planner owns architecture, scope, acceptance and final Track review."
+	// Live RUL7 rev5 field shape: role_authority and delegation name both
+	// roles; authority names only Planner; checkpoints names only Lead.
+	agentValues := tsk688GuideFields("Generic guidance with no role ownership.")
+	agentValues["role_authority"] = "Planner owns durable semantic planning and final Track review; Lead owns dispatch, Worker supervision, review, verification and integration."
+	agentValues["delegation"] = "Planner delegates execution to the Lead, who dispatches and supervises Workers."
+	agentValues["authority"] = "Accepted project Rules, ADRs and Planner authority bound execution."
+	agentValues["checkpoints"] = "Lead pauses at Track submission and final acceptance checkpoints."
 	taskFields, _ := model.GuideProjectionFields("task")
 	taskValues := make(map[string]string, len(taskFields))
 	for _, field := range taskFields {
@@ -489,7 +506,7 @@ func TestTSK594GuidePolicyProof(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer db.Close()
-		tsk688SeedGuideAuthority(t, db, tsk688GuideFields(agentText), taskValues, tsk594GuideRuleRevision)
+		tsk688SeedGuideAuthority(t, db, agentValues, taskValues, tsk594GuideRuleRevision)
 		if err := proveTSK594GuidePolicy(context.Background(), tsk688GuideService(t, db), config.ProjectConfig{}, ""); err != nil {
 			t.Fatalf("accepted guide projection rejected: %v", err)
 		}
@@ -500,7 +517,7 @@ func TestTSK594GuidePolicyProof(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer db.Close()
-		tsk688SeedGuideAuthority(t, db, tsk688GuideFields(agentText), taskValues, tsk594GuideRuleRevision+1)
+		tsk688SeedGuideAuthority(t, db, agentValues, taskValues, tsk594GuideRuleRevision+1)
 		if err := proveTSK594GuidePolicy(context.Background(), tsk688GuideService(t, db), config.ProjectConfig{}, ""); err == nil {
 			t.Fatal("stale guide revision was accepted")
 		}
@@ -514,6 +531,32 @@ func TestTSK594GuidePolicyProof(t *testing.T) {
 		tsk688SeedGuideAuthority(t, db, tsk688GuideFields("Generic guidance with no role ownership."), taskValues, tsk594GuideRuleRevision)
 		if err := proveTSK594GuidePolicy(context.Background(), tsk688GuideService(t, db), config.ProjectConfig{}, ""); err == nil {
 			t.Fatal("guide missing Lead/Planner authority was accepted")
+		}
+	})
+	t.Run("authority without Planner fails", func(t *testing.T) {
+		db, err := sqlitestore.Open(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		drifted := maps.Clone(agentValues)
+		drifted["authority"] = "Lead authority only."
+		tsk688SeedGuideAuthority(t, db, drifted, taskValues, tsk594GuideRuleRevision)
+		if err := proveTSK594GuidePolicy(context.Background(), tsk688GuideService(t, db), config.ProjectConfig{}, ""); err == nil {
+			t.Fatal("guide authority missing Planner was accepted")
+		}
+	})
+	t.Run("checkpoints without Lead fails", func(t *testing.T) {
+		db, err := sqlitestore.Open(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		drifted := maps.Clone(agentValues)
+		drifted["checkpoints"] = "Planner pauses at every checkpoint."
+		tsk688SeedGuideAuthority(t, db, drifted, taskValues, tsk594GuideRuleRevision)
+		if err := proveTSK594GuidePolicy(context.Background(), tsk688GuideService(t, db), config.ProjectConfig{}, ""); err == nil {
+			t.Fatal("guide checkpoints missing Lead was accepted")
 		}
 	})
 	t.Run("missing bindings fail", func(t *testing.T) {
@@ -546,6 +589,59 @@ func tsk688TrackFixture() model.Track {
 			SubmittedAt: time.Now().UTC(), SubmittedBy: tsk593TrackSubmittedBy,
 		},
 		CreatedBy: "planner", CreatedAt: time.Now().UTC(), UpdatedBy: "planner", UpdatedAt: time.Now().UTC(),
+	}
+}
+
+// TestTSK593StoredTrackProof reads the stored TRK2 record through the
+// reconcile path — a stale derived projection must not mask the accepted
+// rev51 evidence.
+func TestTSK593StoredTrackProof(t *testing.T) {
+	db, err := sqlitestore.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	track := tsk688TrackFixture()
+	raw, err := json.Marshal(track)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if _, err := db.Shared.Batch(context.Background(), []upstream.Statement{{
+		SQL:  `INSERT INTO shared_tracks(id,revision,payload,updated_at) VALUES(?,?,?,?)`,
+		Args: []any{tsk593TrackKey, tsk593TrackRevision, raw, now.Format(time.RFC3339Nano)},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	root := filepath.Join(dir, "root")
+	mirror := filepath.Join(dir, "mirror.git")
+	s := &Service{
+		Config: config.Config{StateDir: t.TempDir(), Projects: map[string]config.ProjectConfig{
+			config.GTWProjectID: {Root: root, Mirror: mirror, Remote: "origin", DefaultBranch: "main"},
+		}},
+		Durability: db,
+	}
+	// The stored record must be read even though no git ancestry can resolve
+	// in the empty fixture — the failure must surface only at the ancestry
+	// step, proving the stored accepted rev51 evidence was validated.
+	if err := proveTSK593TrackOrchestration(context.Background(), s, config.ProjectConfig{Root: root}, tsk593TrackReviewHead); err == nil || !strings.Contains(err.Error(), "ancestor") && !strings.Contains(err.Error(), "git") {
+		t.Fatalf("stored track proof must reach the ancestry boundary: %v", err)
+	}
+	// A tampered stored record must fail before ancestry proof.
+	if _, err := db.Shared.Batch(context.Background(), []upstream.Statement{{
+		SQL: `UPDATE shared_tracks SET payload=? WHERE id=?`,
+		Args: []any{func() []byte {
+			tr := tsk688TrackFixture()
+			tr.Revision = tsk593TrackRevision - 1
+			raw, _ := json.Marshal(tr)
+			return raw
+		}(), tsk593TrackKey},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := proveTSK593TrackOrchestration(context.Background(), s, config.ProjectConfig{Root: root}, tsk593TrackReviewHead); err == nil {
+		t.Fatal("tampered stored track record was accepted")
 	}
 }
 

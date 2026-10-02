@@ -99,8 +99,8 @@ var tsk589ReconcileSpec = taskReconcileSpec{
 		{Stage: "integration", Revision: tsk589IntegratedRevision, Status: model.TaskExecutionIntegrated, Head: tsk589ImplCommit, EventKind: "integration", Decision: "accept", CommentEmpty: true},
 	},
 	receipts: []taskReconcileReceiptSpec{
-		{OperationID: tsk589FailedVerify, Attempt: 6, Outcome: "failed", CandidateHead: tsk589SecondHead, CodeReviewID: 415},
-		{OperationID: tsk589SucceededVerify, Attempt: 11, Outcome: model.TaskExecutionVerificationSucceeded, CandidateHead: tsk589FinalHead, CodeReviewID: 418, RequiredGates: []string{"format", "check", "test"}},
+		{OperationID: tsk589FailedVerify, Attempt: 6, Outcome: "failed", CandidateHead: tsk589SecondHead, CandidateTree: "5ca9addf11f4aab38ee95f41f28a70526d09cf21", CodeReviewID: 415},
+		{OperationID: tsk589SucceededVerify, Attempt: 11, Outcome: model.TaskExecutionVerificationSucceeded, CandidateHead: tsk589FinalHead, CandidateTree: tsk589ImplTree, CodeReviewID: 418, RequiredGates: []string{"format", "check", "test"}},
 	},
 	successReceipt: tsk589SucceededVerify,
 	plannerKey:     tsk688PlannerJournalKey,
@@ -136,7 +136,7 @@ var tsk594ReconcileSpec = taskReconcileSpec{
 	},
 	receipts: []taskReconcileReceiptSpec{{
 		OperationID: tsk594SucceededVerify, Attempt: 10, Outcome: model.TaskExecutionVerificationSucceeded,
-		CandidateHead: tsk594FinalHead, CodeReviewID: 255, TestsReviewID: 257, RequiredGates: []string{"format", "check", "test"},
+		CandidateHead: tsk594FinalHead, CandidateTree: tsk594ImplTree, CodeReviewID: 255, TestsReviewID: 257, RequiredGates: []string{"format", "check", "test"},
 	}},
 	successReceipt: tsk594SucceededVerify,
 	plannerKey:     tsk688PlannerJournalKey,
@@ -166,7 +166,7 @@ var tsk593ReconcileSpec = taskReconcileSpec{
 	},
 	receipts: []taskReconcileReceiptSpec{{
 		OperationID: tsk593SucceededVerify, Attempt: 4, Outcome: model.TaskExecutionVerificationSucceeded,
-		CandidateHead: tsk593FinalHead, CodeReviewID: 450, RequiredGates: []string{"format", "check", "test"},
+		CandidateHead: tsk593FinalHead, CandidateTree: tsk593ImplTree, CodeReviewID: 450, RequiredGates: []string{"format", "check", "test"},
 	}},
 	successReceipt: tsk593SucceededVerify,
 	plannerKey:     tsk688PlannerJournalKey,
@@ -241,11 +241,18 @@ func proveTSK594GuidePolicy(ctx context.Context, s *Service, _ config.ProjectCon
 	if !bound || rule.ID != tsk594GuideRule || rule.Revision != tsk594GuideRuleRevision {
 		return fmt.Errorf("agent guide is not bound to accepted %s rev%d", tsk594GuideRule, tsk594GuideRuleRevision)
 	}
-	for _, field := range []string{"role_authority", "delegation", "authority", "checkpoints"} {
-		text := values[field]
-		if !strings.Contains(text, "Lead") || !strings.Contains(text, "Planner") {
+	// Verified live RUL7 rev5 projection: role_authority and delegation name
+	// both roles; authority and checkpoints name only one.
+	for _, field := range []string{"role_authority", "delegation"} {
+		if text := values[field]; !strings.Contains(text, "Lead") || !strings.Contains(text, "Planner") {
 			return fmt.Errorf("agent guide %s no longer projects the accepted role-aware policy", field)
 		}
+	}
+	if !strings.Contains(values["authority"], "Planner") {
+		return fmt.Errorf("agent guide authority no longer projects the accepted role-aware policy")
+	}
+	if !strings.Contains(values["checkpoints"], "Lead") {
+		return fmt.Errorf("agent guide checkpoints no longer projects the accepted role-aware policy")
 	}
 	taskRule, taskValues, bound, err := s.ProjectGuideRead(ctx, config.GTWProjectID, "task")
 	if err != nil {
@@ -265,7 +272,10 @@ func proveTSK594GuidePolicy(ctx context.Context, s *Service, _ config.ProjectCon
 // semantics: accepted GTW-TRK2 rev51, whose review binds every member and
 // whose dispatched_tasks record the autonomous Lead execution log.
 func proveTSK593TrackOrchestration(ctx context.Context, s *Service, project config.ProjectConfig, canonicalMain string) error {
-	track, err := s.TrackLifecycleRead(ctx, config.GTWProjectID, tsk593TrackKey, 0)
+	// The stored record is the durable evidence: canonical main may have
+	// moved past the review snapshot, which makes the derived status stale
+	// without invalidating the accepted rev51 record.
+	track, err := s.trackReadStored(ctx, config.GTWProjectID, tsk593TrackKey, 0)
 	if err != nil {
 		return fmt.Errorf("Track orchestration evidence is unavailable: %w", err)
 	}

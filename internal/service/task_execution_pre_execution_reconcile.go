@@ -56,6 +56,7 @@ type taskReconcileReceiptSpec struct {
 	Attempt        int
 	Outcome        string
 	CandidateHead  string
+	CandidateTree  string
 	CodeReviewID   int64
 	TestsReviewID  int64
 	RebaseReviewID int64
@@ -115,7 +116,8 @@ var tsk660ReconcileSpec = taskReconcileSpec{
 	receipts: []taskReconcileReceiptSpec{{
 		OperationID: tsk660LegacyVerificationOperation, Attempt: tsk660TaskRevision,
 		Outcome: model.TaskExecutionVerificationSucceeded, CandidateHead: tsk660LegacyVerificationCandidate,
-		CodeReviewID: tsk660LegacyVerificationReviewID, RequiredGates: []string{"format", "check", "test"},
+		CandidateTree: tsk660ImplementationTree,
+		CodeReviewID:  tsk660LegacyVerificationReviewID, RequiredGates: []string{"format", "check", "test"},
 	}},
 	successReceipt: tsk660LegacyVerificationOperation,
 	plannerKey:     tsk660PlannerJournalKey,
@@ -568,7 +570,7 @@ func (s *Service) readLegacyVerification(ctx context.Context, spec taskReconcile
 		if err != nil {
 			return taskPreExecutionVerificationProof{}, fmt.Errorf("%s legacy verification receipt %d is undecodable: %w", spec.taskID, index, err)
 		}
-		if receipt.ProjectID != config.GTWProjectID || receipt.TaskID != spec.taskID || receipt.OperationID != want.OperationID || receipt.TaskRevision != spec.taskRevision || receipt.AttemptRevision != want.Attempt || receipt.TaskRevisionSHA256 != task.RevisionSHA256 || receipt.Outcome != want.Outcome || receipt.BaseHead != spec.mainBase || receipt.CandidateHead != want.CandidateHead || receipt.CandidateTree != spec.implTree || receipt.Branch != spec.branch || receipt.CodeReviewID != want.CodeReviewID || receipt.TestsReviewID != want.TestsReviewID || receipt.RebaseReviewID != want.RebaseReviewID {
+		if receipt.ProjectID != config.GTWProjectID || receipt.TaskID != spec.taskID || receipt.OperationID != want.OperationID || receipt.TaskRevision != spec.taskRevision || receipt.AttemptRevision != want.Attempt || receipt.TaskRevisionSHA256 != task.RevisionSHA256 || receipt.Outcome != want.Outcome || receipt.BaseHead != spec.mainBase || receipt.CandidateHead != want.CandidateHead || receipt.CandidateTree != want.CandidateTree || receipt.Branch != spec.branch || receipt.CodeReviewID != want.CodeReviewID || receipt.TestsReviewID != want.TestsReviewID || receipt.RebaseReviewID != want.RebaseReviewID {
 			return taskPreExecutionVerificationProof{}, fmt.Errorf("%s verification receipt %d identity does not match the authorized historical gate proof", spec.taskID, index)
 		}
 		if want.Outcome == model.TaskExecutionVerificationSucceeded {
