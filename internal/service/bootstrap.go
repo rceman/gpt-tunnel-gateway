@@ -88,6 +88,14 @@ func (s *Service) ProjectOnboard(ctx context.Context, in ProjectOnboardInput) (P
 		return ProjectOnboardResult{}, fmt.Errorf("project %q is statically configured; managed onboarding would create duplicate authority", identity.projectID)
 	}
 
+	durable, found, err := s.readHubOnboardProject(ctx, identity.projectID)
+	if err != nil {
+		return ProjectOnboardResult{}, err
+	}
+	if found {
+		return s.projectOnboardAdoptHub(ctx, in, identity, durable)
+	}
+
 	hubRevision, err := s.Hub.RemoteRevision(ctx)
 	if err != nil {
 		return ProjectOnboardResult{}, fmt.Errorf("read Hub revision: %w", err)
@@ -245,6 +253,86 @@ func validateOnboardEntry(projectID string, actual, expected config.ManagedProje
 		return fmt.Errorf("managed project %q conflicts with repository identity or project code", projectID)
 	}
 	return nil
+}
+
+// readHubOnboardProject reads the durable Hub project record when one exists.
+// Absent project.json means the Hub-unknown new-project branch; a present but
+// invalid record fails closed rather than falling through to registration.
+func (s *Service) readHubOnboardProject(ctx context.Context, projectID string) (model.Project, bool, error) {
+	data, err := s.Hub.ReadFile(ctx, s.projectPath(projectID))
+	if err != nil {
+		if IsNotFound(err) {
+			return model.Project{}, false, nil
+		}
+		return model.Project{}, false, fmt.Errorf("read Hub project: %w", err)
+	}
+	var project model.Project
+	if err := decodeStrict(data, &project); err != nil {
+		return model.Project{}, false, fmt.Errorf("decode Hub project %q: %w", projectID, err)
+	}
+	if err := model.ValidateProject(project); err != nil {
+		return model.Project{}, false, fmt.Errorf("Hub project %q is invalid: %w", projectID, err)
+	}
+	if project.ID != projectID {
+		return model.Project{}, false, fmt.Errorf("Hub project %q has mismatched durable ID", projectID)
+	}
+	return project, true, nil
+}
+
+// projectOnboardAdoptHub adopts a Hub-known project onto a Local state that has
+// no existing registration: the exact portable identity is bound to the local
+// repository, the managed registry is published, and portable Hub semantics are
+// restored through the canonical reconcile path. No Hub project, identifier, or
+// configuration authority is recreated. Runtime-local state is never restored.
+func (s *Service) projectOnboardAdoptHub(ctx context.Context, in ProjectOnboardInput, identity onboardIdentity, project model.Project) (ProjectOnboardResult, error) {
+	if project.Status != "active" {
+		return ProjectOnboardResult{}, fmt.Errorf("Hub project %q is not active", identity.projectID)
+	}
+	if project.RepositoryURL != identity.entry.RepositoryURL {
+		return ProjectOnboardResult{}, fmt.Errorf("Hub project %q repository identity conflicts with the requested repository", identity.projectID)
+	}
+	if project.DefaultBranch != identity.entry.DefaultBranch {
+		return ProjectOnboardResult{}, fmt.Errorf("Hub project %q default branch conflicts with the repository default branch", identity.projectID)
+	}
+	retired, err := s.isProjectRetired(ctx, identity.projectID)
+	if err != nil {
+		return ProjectOnboardResult{}, err
+	}
+	if !retired {
+		_, retired, err = s.readHubProjectRetirement(ctx, identity.projectID)
+		if err != nil {
+			return ProjectOnboardResult{}, err
+		}
+	}
+	if retired {
+		return ProjectOnboardResult{}, fmt.Errorf("project %q is retired", identity.projectID)
+	}
+	identifiers, err := s.ProjectIdentifiersRead(ctx, identity.projectID)
+	if err != nil {
+		return ProjectOnboardResult{}, fmt.Errorf("read Hub project identifiers: %w", err)
+	}
+	if identifiers.ProjectCode != in.ProjectCode {
+		return ProjectOnboardResult{}, fmt.Errorf("Hub project code %q conflicts with requested %q", identifiers.ProjectCode, in.ProjectCode)
+	}
+	if _, err := config.WriteManagedProjectRegistry(s.Config.StateDir, identity.digest, identity.nextRegistry); err != nil {
+		return ProjectOnboardResult{}, fmt.Errorf("publish managed project registry: %w", err)
+	}
+	if err := s.reconcileOnboardedProjectShared(ctx, identity.projectID, in.ProjectCode); err != nil {
+		return ProjectOnboardResult{}, err
+	}
+	if err := s.verifyOnboardedProject(ctx, identity.projectID, in.ProjectCode); err != nil {
+		return ProjectOnboardResult{}, err
+	}
+	grant, err := s.ensureOnboardSessionBootstrapGrant(ctx, identity.projectID, in.ProjectCode)
+	if err != nil {
+		return ProjectOnboardResult{}, err
+	}
+	result := identity.result("adopted")
+	result.Token = grant.Token
+	if grant.Token != "" {
+		result.TokenUsage = ProjectOnboardTokenUsage
+	}
+	return s.registerOnboardAgents(ctx, result, in.WorkerRelay, in.LeadRelay)
 }
 
 func (s *Service) reconcileOnboardedProjectShared(ctx context.Context, projectID, code string) error {
