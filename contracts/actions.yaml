@@ -1639,13 +1639,16 @@ domains:
                 - evidence
                 - already_reconciled
             type: object
-        - description: Reconcile the exact Planner-authorized already-landed pre-execution TSK660 without fabricating normal lifecycle receipts.
+        - description: Reconcile the exact Planner-authorized already-landed pre-execution Tasks without fabricating normal lifecycle receipts.
           input:
             additional_properties: false
             properties:
                 key:
-                    description: Only the exact Planner-authorized pre-execution Task may be reconciled.
+                    description: Only an exact Planner-authorized pre-execution Task may be reconciled.
                     enum:
+                        - GTW-TSK589
+                        - GTW-TSK593
+                        - GTW-TSK594
                         - GTW-TSK660
                     ref: EntityKeyAndReference
             required:
@@ -1670,11 +1673,11 @@ domains:
                         pattern: ^GTW-JRN[0-9]+$
                         type: string
                     max_items: 8
-                    min_items: 3
+                    min_items: 2
                     type: array
                 execution_revision:
-                    maximum: 10
-                    minimum: 10
+                    maximum: 15
+                    minimum: 8
                     type: integer
                 integration_head:
                     max_length: 8
@@ -1682,6 +1685,9 @@ domains:
                     ref: GitFingerprint
                 key:
                     enum:
+                        - GTW-TSK589
+                        - GTW-TSK593
+                        - GTW-TSK594
                         - GTW-TSK660
                     ref: EntityKeyAndReference
                 status:
