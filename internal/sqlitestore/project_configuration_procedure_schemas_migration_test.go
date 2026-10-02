@@ -75,6 +75,9 @@ func TestTSK687ProcedureSchemasConvergeBehindCompletedMarkers(t *testing.T) {
 		"project_configuration_activation_preflight",
 		"project_configuration_activate_local",
 		"project_configuration_release_prod",
+		// TSK693's e2e install is a separate one-shot marker; pre-complete it
+		// so this fixture isolates the schema-convergence revision bump.
+		"project_configuration_e2e_procedure_v1",
 	} {
 		if err := db.setSharedUpgradeMigrationState(ctx, marker, "complete"); err != nil {
 			t.Fatal(err)
