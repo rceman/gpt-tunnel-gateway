@@ -168,19 +168,19 @@ func TestTSK693E2ETrackAcceptCrossProject(t *testing.T) {
 	if after["status"] != model.TrackAccepted {
 		t.Fatalf("Track did not become accepted: %#v", after)
 	}
-	for _, field := range []string{"op", "target_project", "track", "revision", "head", "tree", "status"} {
+	for _, field := range []string{"op", "target_project", "target_track", "revision", "head", "tree", "status"} {
 		if _, present := receipt[field]; !present {
 			t.Fatalf("receipt misses %q: %#v", field, receipt)
 		}
 	}
-	if receipt["op"] != "track_accept" || receipt["target_project"] != "EXM" || receipt["track"] != trackID || receipt["status"] != "accepted" || receipt["head"] != review["head"] || receipt["tree"] != review["tree"] {
+	if receipt["op"] != "track_accept" || receipt["target_project"] != "EXM" || receipt["target_track"] != trackID || receipt["status"] != "accepted" || receipt["head"] != review["head"] || receipt["tree"] != review["tree"] {
 		t.Fatalf("receipt does not bind the accepted snapshot: %#v", receipt)
 	}
 
 	// Idempotent replay: an already-accepted Track with the same snapshot
 	// returns the receipt without a second mutation.
 	code, stderr, replay := tsk693RunScript(t, script, t.TempDir(), tsk693Input(fixture, readView(), planner, trackID))
-	if code != 0 || replay["status"] != "accepted" || replay["track"] != trackID {
+	if code != 0 || replay["status"] != "accepted" || replay["target_track"] != trackID {
 		t.Fatalf("e2e replay failed: rc=%d stderr=%s receipt=%#v", code, stderr, replay)
 	}
 	if again := readView(); again["status"] != model.TrackAccepted {

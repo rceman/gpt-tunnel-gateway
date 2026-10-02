@@ -59,7 +59,10 @@ func GTWE2EProcedureInputSchema() map[string]any {
 
 // GTWE2EProcedureOutputSchema is the closed typed receipt returned to Lead:
 // the target project, the accepted Track, its resulting revision plus the
-// accepted review head/tree and final status.
+// accepted review head/tree and final status. target_track is deliberately
+// an opaque bounded string: the executor validates EntityKeyAndReference
+// output fields against the OWNING project, and this receipt names a Track
+// that only exists on the target runtime (GTW-OPR4017 / TSK695).
 func GTWE2EProcedureOutputSchema() map[string]any {
 	return map[string]any{
 		"type":                 "object",
@@ -67,13 +70,13 @@ func GTWE2EProcedureOutputSchema() map[string]any {
 		"properties": map[string]any{
 			"op":             map[string]any{"type": "string", "enum": []any{"track_accept"}},
 			"target_project": map[string]any{"type": "string", "minLength": 1, "maxLength": 64},
-			"track":          map[string]any{"$ref": "EntityKeyAndReference"},
+			"target_track":   map[string]any{"type": "string", "minLength": 1, "maxLength": 256},
 			"revision":       map[string]any{"$ref": "Revision"},
 			"head":           map[string]any{"$ref": "GitFingerprint"},
 			"tree":           map[string]any{"$ref": "GitFingerprint"},
 			"status":         map[string]any{"type": "string", "enum": []any{"accepted"}},
 		},
-		"required": []any{"op", "target_project", "track", "revision", "head", "tree", "status"},
+		"required": []any{"op", "target_project", "target_track", "revision", "head", "tree", "status"},
 	}
 }
 
