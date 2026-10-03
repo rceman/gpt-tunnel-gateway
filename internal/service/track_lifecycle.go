@@ -899,14 +899,11 @@ func (s *Service) requireMilestoneHasNoNonterminalTracks(ctx context.Context, pr
 		if !referencesMember {
 			continue
 		}
-		status := track.Status
-		if status == model.TrackAccepted {
-			status, err = s.deriveTrackStatus(ctx, track)
-			if err != nil {
-				return err
-			}
-		}
-		switch status {
+		// Durable stored status decides terminality (TSK696): an accepted
+		// Track remains terminal even when its freshness projection is
+		// stale — staleness only governs reuse decisions, which keep the
+		// derived check in nonterminalTrackForTaskExcluding.
+		switch track.Status {
 		case model.TrackPlanned, model.TrackActive, model.TrackReady, model.TrackReviewPending, model.TrackStale:
 			return fmt.Errorf("Milestone %q has nonterminal Track %q", milestoneID, track.ID)
 		}
