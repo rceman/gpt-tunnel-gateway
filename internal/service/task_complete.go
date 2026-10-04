@@ -47,6 +47,7 @@ type taskCompletionContract struct {
 	IntegrationHead             string                              `json:"integration_head,omitempty"`
 	VerificationOperationID     string                              `json:"verification_operation_id,omitempty"`
 	VerificationAttemptRevision int                                 `json:"verification_attempt_revision,omitempty"`
+	AcceptedTrack               string                              `json:"accepted_track,omitempty"`
 	Acceptance                  []taskCompleteLegacyAcceptanceInput `json:"acceptance,omitempty"`
 }
 
@@ -100,7 +101,7 @@ func (s *Service) TaskComplete(ctx context.Context, in TaskCompleteInput, actor 
 	if task.Status == model.TaskAuthoringArchived {
 		return TaskCompleteOutput{}, fmt.Errorf("archived Task cannot be completed")
 	}
-	if len(task.AcceptanceCriteria) < 1 || len(task.AcceptanceCriteria) > 128 {
+	if len(task.AcceptanceCriteria) > 128 {
 		return TaskCompleteOutput{}, fmt.Errorf("Task has no completable acceptance criteria")
 	}
 	identifiers, err := s.ProjectIdentifiersRead(ctx, in.ProjectID)
@@ -128,7 +129,7 @@ func (s *Service) TaskComplete(ctx context.Context, in TaskCompleteInput, actor 
 		if !found {
 			return TaskCompleteOutput{}, fmt.Errorf("completed Task lacks its completion lifecycle event; evidence reconciliation is required")
 		}
-		return s.taskCompleteReplay(in, task, state, hasExecution, phases, event)
+		return s.taskCompleteReplay(ctx, in, task, state, hasExecution, phases, event)
 	}
 	if found {
 		return TaskCompleteOutput{}, fmt.Errorf("Task completion lifecycle event exists without a completed Task; evidence reconciliation is required")
@@ -156,6 +157,12 @@ func (s *Service) TaskComplete(ctx context.Context, in TaskCompleteInput, actor 
 			return TaskCompleteOutput{}, err
 		}
 	}
+	// A Task without acceptance criteria is completable only through the
+	// bounded accepted-Track fallback plus the Planner completion Journal
+	// (TSK697); every other proof path still requires criteria.
+	if len(task.AcceptanceCriteria) < 1 && verification.AcceptedTrack == "" {
+		return TaskCompleteOutput{}, fmt.Errorf("Task has no completable acceptance criteria")
+	}
 	contract := taskCompletionContract{
 		SchemaVersion:               1,
 		Mode:                        in.Mode,
@@ -167,6 +174,7 @@ func (s *Service) TaskComplete(ctx context.Context, in TaskCompleteInput, actor 
 		IntegrationHead:             integrationHead,
 		VerificationOperationID:     verification.OperationID,
 		VerificationAttemptRevision: verification.AttemptRevision,
+		AcceptedTrack:               verification.AcceptedTrack,
 	}
 	contractJSON, err := json.Marshal(contract)
 	if err != nil {
@@ -249,7 +257,7 @@ func (s *Service) TaskComplete(ctx context.Context, in TaskCompleteInput, actor 
 	}, nil
 }
 
-func (s *Service) taskCompleteReplay(in TaskCompleteInput, task model.TaskAuthoring, state model.TaskExecutionState, hasExecution bool, phases []sqlitestore.TaskExecutionPhase, event sqlitestore.TaskLifecycleEvent) (TaskCompleteOutput, error) {
+func (s *Service) taskCompleteReplay(ctx context.Context, in TaskCompleteInput, task model.TaskAuthoring, state model.TaskExecutionState, hasExecution bool, phases []sqlitestore.TaskExecutionPhase, event sqlitestore.TaskLifecycleEvent) (TaskCompleteOutput, error) {
 	var stored taskCompletionContract
 	if err := decodeStrict(event.Contract, &stored); err != nil {
 		return TaskCompleteOutput{}, fmt.Errorf("Task completion contract is corrupt: %w", err)
@@ -308,8 +316,27 @@ func (s *Service) taskCompleteReplay(in TaskCompleteInput, task model.TaskAuthor
 	}
 	switch in.Mode {
 	case "integrated":
-		if strings.HasPrefix(phase.Comment, taskExecutionHistoricalPhasePrefix) ||
-			model.ValidateObjectIdentifier(stored.VerificationOperationID) != nil || stored.VerificationAttemptRevision < 1 {
+		if strings.HasPrefix(phase.Comment, taskExecutionHistoricalPhasePrefix) {
+			return TaskCompleteOutput{}, fmt.Errorf("Task completion phase evidence conflicts with the recorded contract; evidence reconciliation is required")
+		}
+		if stored.AcceptedTrack != "" {
+			if model.ValidateTrackID(stored.AcceptedTrack) != nil || stored.VerificationOperationID != "" || stored.VerificationAttemptRevision != 0 {
+				return TaskCompleteOutput{}, fmt.Errorf("Task completion phase evidence conflicts with the recorded contract; evidence reconciliation is required")
+			}
+			track, trackErr := s.trackReadStored(ctx, in.ProjectID, stored.AcceptedTrack, 0)
+			pinned := false
+			if trackErr == nil && track.Status == model.TrackAccepted && track.Review != nil && slices.Contains(track.Tasks, in.Key) {
+				for _, snapshot := range track.Review.Tasks {
+					if snapshot.Key == in.Key {
+						pinned = snapshot.Revision == task.Revision && snapshot.RevisionSHA256 == task.RevisionSHA256
+						break
+					}
+				}
+			}
+			if !pinned {
+				return TaskCompleteOutput{}, fmt.Errorf("Task completion Track evidence conflicts with the recorded contract; evidence reconciliation is required")
+			}
+		} else if model.ValidateObjectIdentifier(stored.VerificationOperationID) != nil || stored.VerificationAttemptRevision < 1 {
 			return TaskCompleteOutput{}, fmt.Errorf("Task completion phase evidence conflicts with the recorded contract; evidence reconciliation is required")
 		}
 	case "historical":
@@ -360,7 +387,7 @@ func (s *Service) taskCompleteCommittedReplay(ctx context.Context, in TaskComple
 	if err != nil {
 		return TaskCompleteOutput{}, false, err
 	}
-	out, err := s.taskCompleteReplay(in, task, state, hasExecution, phases, event)
+	out, err := s.taskCompleteReplay(ctx, in, task, state, hasExecution, phases, event)
 	if err != nil {
 		return TaskCompleteOutput{}, false, nil
 	}
@@ -474,6 +501,7 @@ type taskCompleteIntegratedEvidence struct {
 	Head            string
 	OperationID     string
 	AttemptRevision int
+	AcceptedTrack   string
 }
 
 func (s *Service) taskCompleteIntegratedProof(ctx context.Context, task model.TaskAuthoring, state model.TaskExecutionState, hasExecution bool, phases []sqlitestore.TaskExecutionPhase) (taskCompleteIntegratedEvidence, error) {
@@ -493,11 +521,18 @@ func (s *Service) taskCompleteIntegratedProof(ctx context.Context, task model.Ta
 	if strings.HasPrefix(phase.Comment, taskExecutionHistoricalPhasePrefix) {
 		return taskCompleteIntegratedEvidence{}, fmt.Errorf("integrated completion rejects a historical integration phase")
 	}
-	receipt, current, reason, err := s.taskExecutionVerificationProofCurrent(ctx, state)
+	receipt, current, fallbackEligible, reason, err := s.taskExecutionVerificationProofCurrent(ctx, state)
 	if err != nil {
 		return taskCompleteIntegratedEvidence{}, err
 	}
 	if !current {
+		// TSK697: when the immutable verification is unavailable only
+		// because a delivered Task predates the current gate contract or
+		// its gate changed since, durable Planner-accepted Track evidence
+		// may satisfy completion instead — bounded, fail-closed.
+		if fallbackEligible {
+			return s.taskCompleteIntegratedAcceptedTrackProof(ctx, task, phase)
+		}
 		return taskCompleteIntegratedEvidence{}, fmt.Errorf("integrated completion requires a current immutable Task verification: %s", reason)
 	}
 	if receipt.CompletedAt.After(phase.CreatedAt) {
@@ -525,6 +560,77 @@ func (s *Service) taskCompleteIntegratedProof(ctx context.Context, task model.Ta
 		OperationID:     receipt.OperationID,
 		AttemptRevision: receipt.AttemptRevision,
 	}, nil
+}
+
+// taskCompleteIntegratedAcceptedTrackProof is the bounded TSK697 fallback for
+// delivered legacy Tasks whose immutable verification is unavailable only
+// because they predate the current gate contract or its profile changed
+// since. It requires a durable Planner-accepted Track — stored accepted
+// status; a stale freshness projection does not revoke acceptance — whose
+// review snapshot pins the exact current Task revision and whose accepted
+// source contains the Task's ordinary integration commit.
+func (s *Service) taskCompleteIntegratedAcceptedTrackProof(ctx context.Context, task model.TaskAuthoring, phase sqlitestore.TaskExecutionPhase) (taskCompleteIntegratedEvidence, error) {
+	if model.ValidateCommitSHA(phase.Head) != nil {
+		return taskCompleteIntegratedEvidence{}, fmt.Errorf("integration phase does not carry a commit")
+	}
+	project, err := s.EffectiveProjectConfig(task.ProjectID)
+	if err != nil {
+		return taskCompleteIntegratedEvidence{}, err
+	}
+	var reasons []string
+	cursor := ""
+	for {
+		page, err := s.Durability.QuerySharedLifecycle(ctx, sqlitestore.SharedLifecycleQuery{
+			EntityType: "track", ProjectID: task.ProjectID, IncludeArchived: true, Limit: sqlitestore.SharedLifecycleQueryMaxRows, Cursor: cursor,
+		})
+		if err != nil {
+			return taskCompleteIntegratedEvidence{}, err
+		}
+		for _, row := range page.Entities {
+			var track model.Track
+			if err := json.Unmarshal(row.Payload, &track); err != nil {
+				return taskCompleteIntegratedEvidence{}, fmt.Errorf("invalid stored Track record: %w", err)
+			}
+			if track.ID != row.ID || track.ProjectID != task.ProjectID || track.Status != model.TrackAccepted || track.Review == nil {
+				continue
+			}
+			if !slices.Contains(track.Tasks, task.ID) {
+				continue
+			}
+			pinned := false
+			for _, snapshot := range track.Review.Tasks {
+				if snapshot.Key == task.ID {
+					pinned = snapshot.Revision == task.Revision && snapshot.RevisionSHA256 == task.RevisionSHA256
+					break
+				}
+			}
+			if !pinned {
+				reasons = append(reasons, fmt.Sprintf("Track %q review does not pin the current Task revision", track.ID))
+				continue
+			}
+			contained, err := s.Git.IsAncestor(ctx, project.Root, phase.Head, track.Review.Head)
+			if err != nil {
+				return taskCompleteIntegratedEvidence{}, err
+			}
+			if !contained {
+				reasons = append(reasons, fmt.Sprintf("Track %q accepted source does not contain the integration commit", track.ID))
+				continue
+			}
+			return taskCompleteIntegratedEvidence{
+				Head:          phase.Head,
+				AcceptedTrack: track.ID,
+			}, nil
+		}
+		if !page.HasMore {
+			break
+		}
+		cursor = page.NextCursor
+	}
+	detail := "no durable accepted Track contains this Task revision's integration"
+	if len(reasons) > 0 {
+		detail = strings.Join(reasons, "; ")
+	}
+	return taskCompleteIntegratedEvidence{}, fmt.Errorf("integrated completion requires a current immutable Task verification or durable accepted Track proof: %s", detail)
 }
 
 func (s *Service) taskCompleteHistoricalProof(ctx context.Context, in TaskCompleteInput, task model.TaskAuthoring, state model.TaskExecutionState, hasExecution bool, phases []sqlitestore.TaskExecutionPhase) (string, taskExecutionHistoricalPhaseEvidence, error) {
