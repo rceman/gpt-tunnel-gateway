@@ -29,6 +29,10 @@ byte-identical to the inspected tree.
 - External module requirements: **3 direct** (`pkoukk/tiktoken-go v0.1.8`,
   `rceman/go-sqlite-store v0.0.0-20260817182756`, `yaml.v3 v3.0.1`) + **2 indirect**
   (`uuid`, `regexp2`); `go mod graph` has 15 edges.
+- **Dependency kinds distinguished:** *direct external Go imports* (module packages the
+  package itself imports), *transitive Go modules* (reachable via `Deps` in the frozen
+  `go list -json`), and *runtime dependencies* (external tools invoked by owned features —
+  reachable by graph, exercised only on the feature's call path).
 - **Runtime/build dependencies beyond the Go toolchain** (verified from source):
   - `libsqlite3` via **CGO** — `go-sqlite-store/internal/sqlite3c/sqlite.go` has
     `#cgo pkg-config: sqlite3` + `#include <sqlite3.h>` → requires `pkg-config`+libsqlite3 for
@@ -51,12 +55,14 @@ byte-identical to the inspected tree.
 | `go mod graph` | 15 edges |
 | `find`/`ls`/`grep`/`sed` (bounded, read-only) | file inventory, symbol/path verification, test-function extraction (`func Test\w+` per file) |
 | `python3 scripts/static-check.py` | `STATIC_CHECK_OK` (bounded static gate; **was run**, correcting v1's contradictory "no checks" claim) |
-| `go run ./cmd/gofmt-struct -check docs/` | **failed: exit 2** (`-check` flag applied to a docs dir — malformed invocation; no source effect) |
+| `go run ./cmd/gofmt-struct -check docs/` | **exit 2** — the tool invocation was attempted and the tool may have partially run; the flag/path combination was rejected (stderr not captured; exact cause not asserted). No source effect. |
 | `cat`/`grep` on `go-sqlite-store` module cache | CGO/libsqlite3 evidence |
 | Read-only SQLite/cat inspection of `internal/lockfile`, `internal/entity`, `internal/actioncontract`, `internal/publicprojection`, `internal/hub` sources | coupling evidence cited below |
 
-No build, no test execution, no mutation, no network, no successor-repository operation. Test
-counts are file counts; no line coverage or timing baseline produced.
+No production/test build suite was executed (the one `go run` tool invocation above is recorded
+honestly — it is not a build of product code). No test execution, no mutation, no network, no
+successor-repository operation. Test counts are file counts; no line coverage or timing
+baseline produced.
 
 ### 1.3 Denominators
 
@@ -67,7 +73,7 @@ counts are file counts; no line coverage or timing baseline produced.
 | Test `_test.go` files | 401 (394 active + 7 ignored) |
 | Migration-named prod files (`*migration*.go`) | **38** (36 `internal/sqlitestore` + 2 `internal/service`) |
 | Migration-named test files | **21** |
-| Scripts | 28 top-level + `scripts/release_tooling/` (10 modules: `changelog`, `cli`, `configuration`, `foundation`, `lifecycle_checks`, `lifecycle_tags`, `repository_state`, `transaction`, `version_files`, `__init__`) |
+| Scripts | **29 top-level** + `scripts/release_tooling/` (**10 modules**: `changelog`, `cli`, `configuration`, `foundation`, `lifecycle_checks`, `lifecycle_tags`, `repository_state`, `transaction`, `version_files`, `__init__`) = **39 files** |
 | Contracts | 2 YAML files, 148 named actions (`contracts/actions.yaml` — counted `name:` entries) |
 | JSON schemas | 14 |
 | Procedures | 1 (`procedures/e2e.py`) |
@@ -114,9 +120,9 @@ may re-express; `runtime-dep` = external runtime requirement.
 | `internal/gitx` | 24/9 | config, model, pagination | 6 | `git` executable | `task_worktree*.go`/`onboard.go` encode Task-era worktree naming and GTW onboarding; `task_integration.go` binds the task-integration commit flow; `local_revision.go` resolves managed-project worktrees (config coupling). Mirror/runner/history/worktree-status machinery is Git-generic. | GTW-name **Yes** (partial); Hub-auth **No**; PLAW **No**; migrate **No**; debug **No**; callback **No**; Task-era **Yes**; runtime-dep **git**. |
 | `internal/hub` | 9/5 | config, fsutil, lockfile, model, runtime_log | 7 | `git` executable | `hub_types.go:11` `ProtocolRoot = "gpt-tunnel/v1"` — the remote on-disk layout version; the package owns remote **authority semantics**, not just naming — see §4. `git_repository`, `snapshot`, `backup`, `transaction`, `write`, `read`, `ensure`, `remove` machinery is Git-CAS-generic and separable from the authority model. | GTW-name **Yes**; Hub-auth **Yes** (it *is* the remote layer — see §4); PLAW **No**; migrate **No**; debug **No**; callback **No**; Task-era **No**; runtime-dep **git**. |
 | `internal/model` | 47/26 | workflowrole | 1 | none | `agent.go`→`workflowrole` = the sole PLAW edge under model; `e2e_procedure.go`, `activate_local_procedure.go`, `activation_preflight_procedure.go`, `release_prod_procedure.go` define GTW-authored procedures bound to GTW scripts; `operator_journal*`, `orphan_run_recovery`, `task_revision*` carry GTW/legacy-era types; `model_identifiers*` encode GTW key formats (`GTW-TSK*` family). Core semantic types/validators/hashing are the highest-value extract set. | GTW-name **Yes**; Hub-auth **No** (types only); PLAW **Yes** (via agent.go); migrate **Yes** (legacy-decode types); debug **No**; callback **Yes** (`project_callbacks.go`); Task-era **Yes**; runtime-dep **No**. |
-| `internal/sqlitestore` | 75/39 | model, pagination | 3 | `go-sqlite-store/{migrate,store}` → CGO libsqlite3 + pkg-config | **36 `*migration*.go` files** (databases_*_migration, project_configuration_*_migration, tsk384/409/480/531/620/623-era migrations, shared_sequence_hard_cut, shared_*_baseline) exist only to evolve GTW databases — for a clean schema they are dead code; the core `databases*.go`, `shared_lifecycle*` (entity-neutral sequence/history/event/status/conflict machinery), `shared_mutation*` (CAS+outbox atomicity), `shared_relations`, `task_execution*`, `local_*` are high-value. | GTW-name **Yes**; Hub-auth **Yes** (outbox→remote publication); PLAW **Yes** (`plaw_messages.go` filename); migrate **Yes** (dominant); debug **No**; callback **Yes** (`callback_epochs.go`); Task-era **Yes**; runtime-dep **CGO/libsqlite3**. |
-| `internal/service` | 163/121 (120 active + 1 `liveperformance`) | 20 internal (all major) | 23 | `go-sqlite-store/store` → CGO libsqlite3; `python3` (procedures) | Two populations (evidence: file-name census): **semantic lifecycle** (~70 files: `task_authoring*`, `task_lifecycle*`, `task_complete.go`, `track_lifecycle.go`, `milestone_*`, `journal_*`, `shared_*`, `relation.go`, `adr_*`, `workflow_policy*`, `task_execution_{lifecycle,integrate,verification,review,state}`, `project_configuration*`, `procedure_execution.go`, `durable_*`, `liveness_*`, `entity_registry`, `state_contract`) and **host/Task-era scaffolding** (~90 files: `agent_*`×18, `session_*`, `admin_*`, `callback_*`, `bootstrap`, `hotfix`, `cutover`, `operator_*`, `journal_migration`, `project_configuration_hub_migration`, `state_repair`). 29 prod files synchronously call `s.Hub.*` (see §4). Extract/rehome only. | GTW-name **Yes**; Hub-auth **Yes**; PLAW **Yes**; migrate **Yes**; debug **Yes** (repair/debug); callback **Yes**; Task-era **Yes**; runtime-dep **CGO/libsqlite3, python3**. |
-| `internal/mcp` | 85/94 (93 active + 1 `liveperformance`) | 16 internal | 26 | none | MCP transport/schema-validation/compact-projection machinery is reusable; the action inventory (`generic_*_actions.go`×~30) encodes the GTW entity/PLAW corpus; `debug_actions.go`, `agent_canonical.go`, `agent_cli_submit.go`, `operator_*`, `mcp7_*` bind undecided surfaces. Rebuild action surface on kept primitives. | GTW-name **Yes**; Hub-auth **Yes**; PLAW **Yes**; migrate **Yes** (legacy envelopes); debug **Yes**; callback **Yes**; Task-era **Yes**; runtime-dep **No** (loopback HTTP). |
+| `internal/sqlitestore` | 75/39 | model, pagination | 3 | direct ext `go-sqlite-store/{migrate,store}` → CGO libsqlite3 + pkg-config | **36 `*migration*.go` files** (databases_*_migration, project_configuration_*_migration, tsk384/409/480/531/620/623-era, shared_sequence_hard_cut, shared_*_baseline) exist only to evolve GTW databases. **Correction per MSG16:** the `migrate` import is *not* historical-only — `shared_lifecycle_event.go:14` imports `go-sqlite-store/migrate` and `sharedLifecycleEventMigration` (`:23-45`) constructs **current** CREATE TABLE/INDEX DDL; `databases_{shared,local}_baseline.go` import `migrate` for baseline schema construction. Schema definition is mixed into core read/write code — dropping `*migration*` filenames alone cannot yield a compile-closed clean schema; retained tables' schema definitions/bootstrap plumbing must be extracted/re-authored before the `migrate` edge can close. Core `databases*.go`, `shared_lifecycle*` (entity-neutral sequence/history/event/status/conflict machinery), `shared_mutation*` (CAS+outbox atomicity), `shared_relations`, `task_execution*`, `local_*` are high-value. | GTW-name **Yes**; Hub-auth **Yes** (outbox→remote publication); PLAW **Yes** (`plaw_messages.go` filename); migrate **Yes** (dominant); debug **No**; callback **Yes** (`callback_epochs.go`); Task-era **Yes**; runtime-dep **CGO/libsqlite3**. |
+| `internal/service` | 163/121 (120 active + 1 `liveperformance`) | actioncontract, activation, airelay, authority, config, controller, entity, fsutil, gates, gitx, hub, lockfile, model, pagination, publicprojection, runtime_log, session, sqlitestore, tokenizer, workflowrole | 23 | direct ext `go-sqlite-store/store` → CGO libsqlite3; runtime: `git`, `python3` (procedures), `airelay` (via airelay pkg), `systemd` (via controller) — invoked only on their feature paths | Two populations (evidence: file-name census): **semantic lifecycle** (~70 files: `task_authoring*`, `task_lifecycle*`, `task_complete.go`, `track_lifecycle.go`, `milestone_*`, `journal_*`, `shared_*`, `relation.go`, `adr_*`, `workflow_policy*`, `task_execution_{lifecycle,integrate,verification,review,state}`, `project_configuration*`, `procedure_execution.go`, `durable_*`, `liveness_*`, `entity_registry`, `state_contract`) and **host/Task-era scaffolding** (~90 files: `agent_*`×18, `session_*`, `admin_*`, `callback_*`, `bootstrap`, `hotfix`, `cutover`, `operator_*`, `journal_migration`, `project_configuration_hub_migration`, `state_repair`). 29 prod files synchronously call `s.Hub.*` (see §4). Extract/rehome only. | GTW-name **Yes**; Hub-auth **Yes**; PLAW **Yes**; migrate **Yes**; debug **Yes** (repair/debug); callback **Yes**; Task-era **Yes**; runtime-dep **CGO/libsqlite3, python3**. |
+| `internal/mcp` | 85/94 (93 active + 1 `liveperformance`) | actioncontract, agentguide, airelay, authority, config, controller, debug, hub, mcpmanifest, model, pagination, publicprojection, runtime_log, service, session, sqlitestore, tokenizer (17) | 26 | direct ext none; transitive modules reach yaml/tiktoken/uuid/regexp2/go-sqlite-store via those edges; runtime deps via owned features (git, airelay, systemd, python3, CGO) — graph reach only | MCP transport/schema-validation/compact-projection machinery is reusable; the action inventory (`generic_*_actions.go`×~30) encodes the GTW entity/PLAW corpus; `debug_actions.go`, `agent_canonical.go`, `agent_cli_submit.go`, `operator_*`, `mcp7_*` bind undecided surfaces. Rebuild action surface on kept primitives. | GTW-name **Yes**; Hub-auth **Yes**; PLAW **Yes**; migrate **Yes** (legacy envelopes); debug **Yes**; callback **Yes**; Task-era **Yes**; runtime-dep **No** (loopback HTTP). |
 | `internal/session` | 5/8 | model, sqlitestore, workflowrole | 4 | CGO libsqlite3 (transitive) | `roles.go` re-exports `workflowrole` — planner/lead/advisor/worker codes P/L/A/W + `airelay_session_key` ref semantics; `store*.go` durable session machinery is reusable. Role registry must be re-authored. | GTW-name **Yes**; Hub-auth **No**; PLAW **Yes**; migrate **Yes** (legacy payload/IDs); debug **No**; callback **No**; Task-era **Yes**; runtime-dep **CGO (transitive)**. |
 | `internal/workflowrole` | 1/0 | none | 0 | none | `roles.go` (97 lines, not ~40 — corrected) is the fixed PLAW registry + `airelay_session_key` ref semantics — the single role-model decision point. | GTW-name **No**; Hub-auth **No**; PLAW **Yes** (definition site); migrate **No**; debug **No**; callback **No**; Task-era **Yes**; runtime-dep **No**. |
 | `internal/authority` | 1/1 | session | 5 | CGO (transitive) | `Require*Role` helpers enforce the PLAW set — small file, role-model-bound. | GTW-name **No**; Hub-auth **No**; PLAW **Yes**; migrate **No**; debug **No**; callback **No**; Task-era **Yes**; runtime-dep **CGO (transitive)**. |
@@ -126,8 +132,8 @@ may re-express; `runtime-dep` = external runtime requirement.
 | `internal/mcpmanifest` | 1/0 | none | 0 | none | Canonical tool-name inventory (6 tools) — GTW surface; trivial file. | GTW-name **Yes**; Hub-auth **No**; PLAW **No**; migrate **No**; debug **No**; callback **No**; Task-era **No**; runtime-dep **No**. |
 | `internal/releaseartifacts` | 1/1 | none | 0 | none | Embedded-SHA binary-source-revision + artifact replace/snapshot/restore — generic artifact-integrity primitives bound to the GTW release pipeline. | GTW-name **Yes**; Hub-auth **No**; PLAW **No**; migrate **No**; debug **No**; callback **No**; Task-era **Yes**; runtime-dep **No**. |
 | `internal/testutil` | 2/0 | config, sqlitestore | 7 | `go-sqlite-store/store` → CGO | Test fixtures (bare-remote repo + seeded service). Travels only with test harness rework. | GTW-name **Yes**; Hub-auth **Yes** (fixture shape); PLAW **Yes** (fixture roles); migrate **No**; debug **No**; callback **No**; Task-era **Yes**; runtime-dep **CGO**. |
-| `cmd/gpt-tunnel` | 20/23 | 9 internal | 25 | none | Operator/agent CLI — command inventory + `gpt-tunnel` naming + session-attach/task/track/hub routes. Arg-parse/dispatch patterns reusable; surface re-authored. | GTW-name **Yes**; Hub-auth **Yes**; PLAW **Yes**; migrate **Yes** (retired-route handling); debug **Yes**; callback **No**; Task-era **Yes**; runtime-dep **No**. |
-| `cmd/gpt-tunnel-gatewayd` | 1/7 (2 active + 5 `livee2e`) | 11 internal | 27 | CGO (transitive) | Daemon entrypoint — wiring config→stores→service→mcp. Entrypoint shape reusable; startup/reconcile wiring GTW-specific. | GTW-name **Yes**; Hub-auth **Yes**; PLAW **Yes**; migrate **Yes** (bootstrap migration defer); debug **Yes**; callback **No**; Task-era **Yes**; runtime-dep **CGO**. |
+| `cmd/gpt-tunnel` | 20/23 | agentguide, config, controller, gates, gitx, model, publicprojection, releaseartifacts, service (9) | 25 | direct ext none; transitive modules yaml/tiktoken/go-sqlite-store/uuid/regexp2; runtime: git, systemd+CGO via owned paths — graph reach only | Operator/agent CLI — command inventory + `gpt-tunnel` naming + session-attach/task/track/hub routes. Arg-parse/dispatch patterns reusable; surface re-authored. | GTW-name **Yes**; Hub-auth **Yes**; PLAW **Yes**; migrate **Yes** (retired-route handling); debug **Yes**; callback **No**; Task-era **Yes**; runtime-dep **No**. |
+| `cmd/gpt-tunnel-gatewayd` | 1/7 (2 active + 5 `livee2e`) | authority, config, controller, debug, hub, mcp, model, releaseartifacts, service, session, sqlitestore (11) | 27 | direct ext none; transitive all 5 external modules; runtime: CGO/libsqlite3, git, airelay, systemd, python3 — graph reach only | Daemon entrypoint — wiring config→stores→service→mcp. Entrypoint shape reusable; startup/reconcile wiring GTW-specific. | GTW-name **Yes**; Hub-auth **Yes**; PLAW **Yes**; migrate **Yes** (bootstrap migration defer); debug **Yes**; callback **No**; Task-era **Yes**; runtime-dep **CGO**. |
 | `contracts` | 1/0 | none | 0 | none | `assets.go` embeds `actions.yaml`+`shared-definitions.yaml`. Embed plumbing generic; the YAML corpus (148 actions, GTW shared definitions incl. `gtw-timestamp` format at `shared-definitions.yaml:109`) is GTW data — corpus rewritten, so this is **not** a whole-package keep. | GTW-name **Yes** (data); Hub-auth **Yes** (entity families); PLAW **Yes** (role refs); migrate **Yes** (retired-domain history); debug **No**; callback **Yes**; Task-era **Yes**; runtime-dep **No**. |
 
 ### 2.3 Runtime/host packages — audited, not blanket-dropped (per MSG15 §3)
@@ -137,15 +143,15 @@ JRN42 decided not to copy runtime **state**; it did not decide that all process/
 contain generic, extractable primitives versus pure GTW-hosting coupling. Feature-level adoption
 (daemon control, self-upgrade, agent relay, debug surface) is **undecided** and labeled so.
 
-| Package | Prod/Test | Class | Evidence & extract/rehome candidates |
-|---|---|---|---|
-| `internal/airelay` | 6/6 | **REWORK_CANDIDATE** | Channel itself (external `airelay` binary + Devin sessions) is host/vendor-specific — feature adoption **undecided**. Generic subprocess-boundary primitives with proof value: fixed arg-vector construction, bounded child output, UTF-8 byte bound, deadline handling (`client_airelay_{ensure,launch,status,types}.go`, proven by `client_tests_*`); `DeriveExecutionSessionKey` pure/deterministic. Extract/rehome: subprocess-boundary helpers. |
-| `internal/controller` | 18/13 | **REWORK_CANDIDATE** | Daemon lifecycle/systemd/upgrade/recovery is GTW-hosting-coupled — feature adoption **undecided**. Extractable generic primitives with unique proofs: `process_identity.go` (identity survives atomic binary replace), `endpoint_ownership.go` (owner-proof + stale-orphan retire + foreign-config fail-closed), `gateway_recovery*.go` (idempotent restart, terminal-receipt reuse, response-release deferral), `gateway_activation.go` (durable snapshot/rollback ordering), `environment.go` (secrets-binding/open-permission rejection). |
-| `internal/upgrade` | 11/11 | **REWORK_CANDIDATE** | Self-upgrade pipeline is GTW-daemon-bound — feature adoption **undecided**. Extractable: atomic multi-file replace with per-position restore (`upgrade_artifacts.go`/`upgrade_runner.go` proofs), rollback proof-closure + cleanup-failure backup retention, corrupt/symlink/noncanonical record rejection (`status.go`), sanitized bounded diagnostics. |
-| `internal/activation` | 6/9 | **REWORK_CANDIDATE** | GTW activate-local/candidate lifecycle is hosting-bound — feature adoption **undecided**. Extractable: `runBoundedCommand` bounded subprocess execution + deterministic truncation (`activate_runtime_file.go:347`; proofs in `activate_test.go`), `recovery_snapshot.go` (artifact+state snapshot/restore + corrupt-reject), `sha256File` artifact digest (`activate_runtime_file.go:119`; `proof_test.go` proofs). |
-| `internal/debug` | 2/3 | **REWORK_CANDIDATE** | Debug-status surface — feature adoption **undecided**. Extractable: bounded retry with outcome-stickiness (`activation.go`/`activation_retry` proofs), bounded git-output helper (`status.go`, fails-closed at bound + honors deadline). Small package; the primitives could equally be rewritten — UNCLEAR-adjacent, kept REWORK for the two named proofs. |
-| `internal/callbackdelivery` | 1/1 | **DROP_CANDIDATE** | `delivery.go` is a one-line `package callbackdelivery` stub; test file has zero `Test` functions. No production content. |
-| `cmd/gpt-tunnelctl` | 5/2 | **UNCLEAR** | Daemon-control/upgrade CLI bound to the undecided daemon-control + self-upgrade features. Value conditional on RSG adopting those surfaces; not importable standalone. |
+| Package | Prod/Test | Class | Direct internal deps | Direct external / transitive modules | Runtime deps (graph reach — exercised only on the feature's path) | Coupling axes | Evidence & extract/rehome candidates |
+|---|---|---|---|---|---|---|---|
+| `internal/airelay` | 6/6 | **REWORK_CANDIDATE** | session | none / `go-sqlite-store`+`model`-tree transitives | `airelay` binary | GTW-name **Yes** (session-key semantics); Hub-auth **No**; PLAW **Yes** (session roles); migrate **Yes** (legacy validation per `DeriveExecutionSessionKey` doc); debug **No**; callback **Yes** (control channel); Task-era **Yes** | Channel itself (external `airelay` binary + Devin sessions) is host/vendor-specific — feature adoption **undecided**. Generic subprocess-boundary primitives with proof value: fixed arg-vector construction, bounded child output, UTF-8 byte bound, deadline handling (`client_airelay_{ensure,launch,status,types}.go`, proven by `client_tests_*`); `DeriveExecutionSessionKey` pure/deterministic. Extract/rehome: subprocess-boundary helpers. |
+| `internal/controller` | 18/13 | **REWORK_CANDIDATE** | config, fsutil, lockfile, releaseartifacts, runtime_log | none / none | `git`, `systemd`, process signals | GTW-name **Yes**; Hub-auth **No**; PLAW **No**; migrate **Yes** (activation/recovery); debug **Yes**; callback **No**; Task-era **Yes** (hosting) | Daemon lifecycle/systemd/upgrade/recovery is GTW-hosting-coupled — feature adoption **undecided**. Extractable generic primitives with unique proofs: `process_identity.go` (identity survives atomic binary replace), `endpoint_ownership.go` (owner-proof + stale-orphan retire + foreign-config fail-closed), `gateway_recovery*.go` (idempotent restart, terminal-receipt reuse, response-release deferral), `gateway_activation.go` (durable snapshot/rollback ordering), `environment.go` (secrets-binding/open-permission rejection). |
+| `internal/upgrade` | 11/11 | **REWORK_CANDIDATE** | activation, config, controller, fsutil, gitx, lockfile, releaseartifacts, service | none / all 5 external modules | `git`, `systemd`, CGO (via service/sqlitestore reach) | GTW-name **Yes**; Hub-auth **Yes** (`inspect_hub_revision`); PLAW **No**; migrate **Yes**; debug **Yes** (diagnostics); callback **No**; Task-era **Yes** | Self-upgrade pipeline is GTW-daemon-bound — feature adoption **undecided**. Extractable: atomic multi-file replace with per-position restore (`upgrade_artifacts.go`/`upgrade_runner.go` proofs), rollback proof-closure + cleanup-failure backup retention, corrupt/symlink/noncanonical record rejection (`status.go`), sanitized bounded diagnostics. |
+| `internal/activation` | 6/9 | **REWORK_CANDIDATE** | config, controller, fsutil, mcpmanifest, releaseartifacts, sqlitestore | none / `go-sqlite-store` | CGO (via sqlitestore), `git` (via controller) | GTW-name **Yes**; Hub-auth **Yes** (candidate checks); PLAW **No**; migrate **Yes**; debug **Yes**; callback **No**; Task-era **Yes** | GTW activate-local/candidate lifecycle is hosting-bound — feature adoption **undecided**. Extractable: `runBoundedCommand` bounded subprocess execution + deterministic truncation (`activate_runtime_file.go:347`; proofs in `activate_test.go`), `recovery_snapshot.go` (artifact+state snapshot/restore + corrupt-reject), `sha256File` artifact digest (`activate_runtime_file.go:119`; `proof_test.go` proofs). |
+| `internal/debug` | 2/3 | **REWORK_CANDIDATE** | activation, config, controller, fsutil, lockfile | none / `go-sqlite-store` | `git`, `systemd`, CGO (graph reach) | GTW-name **Yes**; Hub-auth **No**; PLAW **No**; migrate **Yes**; debug **Yes** (the surface itself); callback **No**; Task-era **Yes** | Debug-status surface — feature adoption **undecided**. Extractable: bounded retry with outcome-stickiness (`activation.go`/`activation_retry` proofs), bounded git-output helper (`status.go`, fails-closed at bound + honors deadline). Small package; the primitives could equally be rewritten — UNCLEAR-adjacent, kept REWORK for the two named proofs. |
+| `internal/callbackdelivery` | 1/1 | **DROP_CANDIDATE** | none | none / none | none | GTW-name **No**; Hub-auth **No**; PLAW **No**; migrate **No**; debug **No**; callback **Yes** (name only); Task-era **Yes** | `delivery.go` is a one-line `package callbackdelivery` stub; test file has zero `Test` functions. No production content. |
+| `cmd/gpt-tunnelctl` | 5/2 | **UNCLEAR** | activation, config, controller, fsutil, releaseartifacts, service, upgrade | none / all 5 external modules | CGO, git, systemd (graph reach) | GTW-name **Yes**; Hub-auth **Yes** (via upgrade/service reach); PLAW **Yes** (via service reach); migrate **Yes**; debug **Yes**; callback **No**; Task-era **Yes** | Daemon-control/upgrade CLI bound to the undecided daemon-control + self-upgrade features. Value conditional on RSG adopting those surfaces; not importable standalone. |
 
 Package-row totals: **KEEP 8 / REWORK 26 / DROP 1 / UNCLEAR 1 = 36.**
 
@@ -153,11 +159,12 @@ Package-row totals: **KEEP 8 / REWORK 26 / DROP 1 / UNCLEAR 1 = 36.**
 
 | Surface | Files | Class | Evidence |
 |---|---|---|---|
-| `scripts/test-{fast,full,profile,performance}.py`, `test-{full,e2e,race}.sh`, `smoke_mcp.py` | 8 | REWORK_CANDIDATE | Harness shape reusable; module paths/repo names GTW-bound. |
-| `scripts/static-check.py`, `check-go-format.sh` | 2 | KEEP_CANDIDATE | Policy gates; near repo-agnostic (rename references). |
-| `scripts/task-verify.py` | 1 | REWORK_CANDIDATE | Canonical verify-gate script; gate vocabulary re-authored. |
-| `scripts/{release,release-prod,post-integrate,pre-integrate,check-github-ci,verify-release-publication,validate-release-tool-conformance}.py`, `build-release.sh`, `github_tooling.py`, `release_prod_test.py`, `release_tooling/` (10 modules) | ~13 | UNCLEAR | Release pipeline — RSG pipeline undecided; conditional import at most. |
-| `scripts/{activate-local,activation-preflight,integration_activate,upgrade_rehearsal}.py`, `activate_local_test.py`, `integration_activate_test.py`, `upgrade-bootstrap.sh`, `test-integration-activate.sh` | ~8 | UNCLEAR | Bound to undecided activation/upgrade features. |
+| Test harness: `test-fast.py`, `test-full.py`, `test-full.sh`, `test-e2e.sh`, `test-race.sh`, `test-performance.py`, `test-profile.py`, `smoke_mcp.py` | 8 | REWORK_CANDIDATE | Harness shape reusable; module paths/repo names GTW-bound. |
+| Static gates: `static-check.py`, `check-go-format.sh` | 2 | REWORK_CANDIDATE | Policy gates contain GTW inventory lists/module-path literals (`gpt-tunnel-gateway` module checks) — mechanism portable, embedded inventories re-authored; **not** a clean KEEP. |
+| `task-verify.py` | 1 | REWORK_CANDIDATE | Canonical verify-gate script; gate vocabulary re-authored. |
+| Release group: `release.py`, `release-prod.py`, `release_prod_test.py`, `build-release.sh`, `check-github-ci.py`, `github_tooling.py`, `post-integrate.py`, `pre-integrate.py`, `validate-release-tool-conformance.py`, `verify-release-publication.py` + `release_tooling/` (10 modules) | 10 top-level + 10 modules | UNCLEAR | Release pipeline — RSG pipeline undecided; conditional import at most. |
+| Activation group: `activate-local.py`, `activate_local_test.py`, `activation-preflight.py`, `integration_activate.py`, `integration_activate_test.py`, `upgrade-bootstrap.sh`, `upgrade_rehearsal.py`, `test-integration-activate.sh` | 8 | UNCLEAR | Bound to undecided activation/upgrade features. |
+| **Scripts total** | **29 + 10 = 39** | | Groups: harness 8 + static 2 + task-verify 1 + release 10(+10) + activation 8 = 29 top-level. |
 | `contracts/{actions,shared-definitions}.yaml` | 2 (148 actions) | REWORK_CANDIDATE | Canonical action corpus — GTW entity/action/role vocabulary; RSG corpus rewritten. |
 | `schemas/*.schema.json` | 14 | REWORK_CANDIDATE | `adr`/`plan`/`project*`/`task*` document schemas portable-ish; `run*`/`report*`/`operator-journal*`/`gpt-tunnel-completion` GTW-specific. |
 | `procedures/e2e.py` | 1 | REWORK_CANDIDATE | Envelope-unwrap/fail-closed/loopback/snapshot-binding procedure pattern — strong template; bound to GTW actions + planner role. |
@@ -236,7 +243,7 @@ import boundary decision.
 | From | Extract set | Decoupling required (each edge explained) |
 |---|---|---|
 | `internal/model` | semantic types/validators/hashing for adopted families | Sever `agent.go`→`workflowrole` (only internal edge — isolated: `grep -rln workflowrole internal/model` = `agent.go` only); drop/rehome `e2e_procedure`, `activate_local_procedure`, `activation_preflight_procedure`, `release_prod_procedure` (GTW procedure defs); `operator_journal*`/`orphan_run_recovery`/`task_revision*` conditional on document/legacy adoption. |
-| `internal/sqlitestore` | `databases*`, `shared_lifecycle*` (11), `shared_mutation*` (4), `shared_relations`, `task_execution*` non-migration, `task_completion`, `local_*`, `*_lifecycle_policy`, `shared_sequence_reconstruction` | Drop 36 `*migration*.go` + `*_baseline*.go` + `migration_dispatch` (clean schema); `plaw_messages.go` rename+role decoupling; `callback_epochs` conditional on callback model. |
+| `internal/sqlitestore` | `databases*`, `shared_lifecycle*` (11), `shared_mutation*` (4), `shared_relations`, `task_execution*` non-migration, `task_completion`, `local_*`, `*_lifecycle_policy`, `shared_sequence_reconstruction` | Drop historical-evolution migrations (36 `*migration*.go` bodies) — **but schema DDL is mixed into kept files**: `shared_lifecycle_event.go:14` imports `migrate`, `sharedLifecycleEventMigration` (`:23-45`) builds current CREATE TABLE/INDEX; `databases_{shared,local}_baseline.go` build the baseline via `migrate`. Retained tables need their schema definitions/bootstrap plumbing rehomed/re-authored — the `go-sqlite-store/migrate` edge closes only after that extraction (unimplemented); `plaw_messages.go` rename+role decoupling; `callback_epochs` conditional on callback model. |
 | `internal/service` | semantic-lifecycle population (~70 files listed §2.2) | Excise ~90 host/Task-era files; every imported file re-audited for `s.Hub.*` (§4 map), `airelay`, `session`-role, `agent_*` edges. Feasibility: large manual boundary work — **unproven until the file-level list is ratified**. |
 | `internal/gitx` | runner/types/history/mirror/default_branch/repository/push/commit_tree/worktree status | `task_worktree*`/`onboard.go`/`task_integration.go`/`local_revision.go` stay behind or re-author (Task-era naming + config coupling). |
 | `internal/hub` | `git_repository`, `snapshot`, `backup`, `transaction`, `write`, `read`, `ensure`, `remove`, types | §4(b) authority semantics excluded; `ProtocolRoot`/`hub_types` constants re-authored (not copied). |
@@ -267,7 +274,7 @@ import boundary decision.
 |---|---|
 | `service`→`{airelay,controller,upgrade,activation,debug,callback_*}` file population | Scaffolding set per §2.2 census; requires the file-level boundary ratified — **assumption**. |
 | `model`→`workflowrole`, `session`→`workflowrole`, `authority`→`session` role edges | Role model is an explicit RSG decision — edges rebuilt, not carried. |
-| `sqlitestore`→`go-sqlite-store/migrate` usage | Only the 36 `*migration*.go` files import `migrate`; clean schema removes them; `store` stays (CGO/libsqlite3 runtime dep **remains**). |
+| `sqlitestore`→`go-sqlite-store/migrate` | **Not confined to migration files** — `shared_lifecycle_event.go:14` and `databases_{shared,local}_baseline.go` use `migrate` for *current* schema DDL. Edge closes only after retained-table initializers are extracted/re-authored (unimplemented); `store` stays (CGO/libsqlite3 runtime dep **remains**). |
 | `entity`/`hub` `gpt-tunnel/v1*` protocol constants | Versioned-layout constants re-authored, not copied (§4). |
 | `actioncontract`→`contracts` GTW corpus | Corpus rewritten; compiler engine unaffected. |
 | `mcp`→`{debug,agent_canonical,operator_*}` action surface | Undecided surfaces; transport unaffected. |
@@ -277,9 +284,10 @@ import boundary decision.
 
 - `internal/workflowrole/roles.go` is **97 lines** (v1 said ~40 — wrong).
 - `internal/service/durableMutationExecutionSet{1,2,3}.go` are **real tracked files**
-  (verified `git ls-files` + read) — camelCase filenames in a snake_case directory; they contain
+  (verified `git ls-files` + read; Lead's v2 concern resolved by this evidence — no rename or
+  delete requested). CamelCase filenames in a snake_case directory; they contain
   durable-mutation execution dispatch for task-execution submits — a naming inconsistency to
-  flag, not fabricated.
+  flag at import.
 - `hub.ProtocolRoot = "gpt-tunnel/v1"` (`hub_types.go:11`) and `entity` `protocolRoot =
   "gpt-tunnel/v1/projects"` (`registry.go:16`) — separate versioned-layout constants.
 - `internal/callbackdelivery/delivery.go` and `internal/gates/gates.go` are one-line package
@@ -318,10 +326,11 @@ fail-closed state migration → REWRITE) rather than a clean-history inference; 
 `Test` functions are marked as such; build-tag-excluded files carry their tag; no file is
 counted twice.
 
-**Totals generated from the rows below:** PRESERVE_INVARIANT **52** | REWRITE_FOR_RSG **213** |
-REPLACE_WITH_CONTRACT_HARNESS **25** | DROP_LEGACY_COMPATIBILITY **68** | UNCLEAR **43** |
+**Totals generated from the rows below:** PRESERVE_INVARIANT **52** | REWRITE_FOR_RSG **218** |
+REPLACE_WITH_CONTRACT_HARNESS **25** | DROP_LEGACY_COMPATIBILITY **50** | UNCLEAR **56** |
 **total 401** (= 394 active + 7 ignored; per-package sums equal the frozen `TestGoFiles` +
 `IgnoredGoFiles` denominators in §1.3).
+
 
 
 **`cmd/gofmt-struct`**
@@ -342,7 +351,7 @@ REPLACE_WITH_CONTRACT_HARNESS **25** | DROP_LEGACY_COMPATIBILITY **68** | UNCLEA
 | `help_test.go` | REPLACE_WITH_CONTRACT_HARNESS | `TestHelpQuickStartPrecedesCommandInventoryAndAvoidsStaleOnboardingUX` | help inventory/UX contract |
 | `main_test_cli_validation_test.go` | REPLACE_WITH_CONTRACT_HARNESS | `TestCancelAcknowledgeCLIArgumentsAreStrict` | strict arg validation + routing contract |
 | `main_test_registry_test.go` | REWRITE_FOR_RSG | `TestGitcmdResolvesManagedProjectAfterServiceConstruction` | managed-registry resolution + fail-closed malformed registry |
-| `main_test_support_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — shared helper file, proof lives in callers |
+| `main_test_support_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — shared helper file, proof lives in callers (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
 | `main_test_task_lifecycle_test.go` | DROP_LEGACY_COMPATIBILITY | `TestTaskDeferCLIRouteIsRetired` | proves retired-CLI-route hard cut for GTW task surface — GTW command inventory |
 | `operator_client_test.go` | PRESERVE_INVARIANT | `TestOperatorCLIRequestEnforcesBodyBounds` | request body bounds enforcement — transport-bound invariant |
 | `project_onboard_cli_test.go` | REPLACE_WITH_CONTRACT_HARNESS | `TestProjectOnboardPositionalArgsMapToCanonicalWorkerBinding` | onboard arg-map/bounded-output contract |
@@ -351,12 +360,12 @@ REPLACE_WITH_CONTRACT_HARNESS **25** | DROP_LEGACY_COMPATIBILITY **68** | UNCLEA
 | `session_commands_test.go` | REPLACE_WITH_CONTRACT_HARNESS | `TestSessionAttachCLIRequestHitsOperatorRouteWithExactIdentity` | session-attach operator-route identity contract |
 | `tsk567_task_read_test.go` | REPLACE_WITH_CONTRACT_HARNESS | `TestTSK567TaskReadUsesAirelayRuntimeAuthority` | task/read runtime-authority contract |
 | `tsk640_task_submit_test.go` | REPLACE_WITH_CONTRACT_HARNESS | `TestTSK640TaskSubmitUsesFixedAgentCLIEndpoints` | submit endpoint/transport contract |
-| `tsk654_project_token_live_test.go` | DROP_LEGACY_COMPATIBILITY | `TestTSK654ProjectTokenLiveDaemonCwdResolutionAndDurability` | live GTW daemon cwd/token proof — owner environment |
+| `tsk654_project_token_live_test.go` | REWRITE_FOR_RSG | `TestTSK654ProjectTokenLiveDaemonCwdResolutionAndDurability` | durable project-token cwd/identity durability proof — disposable testutil.NewLiveGateway harness (not owner prod); retarget harness to RSG daemon |
 | `tsk655_durability_inventory_test.go` | REPLACE_WITH_CONTRACT_HARNESS | `TestTSK665Gate20OperatorCLIDurabilityInventory` | durability-ownership inventory gate — reprove inventory on RSG surface |
-| `tsk655_live_gateway_test.go` | DROP_LEGACY_COMPATIBILITY | `TestTSK655LiveGatewayOperatorCLIUsesDaemonOwnedDurability` | live GTW daemon durability proof — owner environment |
-| `tsk657_submit_transport_live_test.go` | DROP_LEGACY_COMPATIBILITY | `TestTSK657LiveSubmitResponseLossReconcilesDurably` | live submit-response-loss reconciliation — GTW daemon |
-| `tsk659_sequential_submit_live_test.go` | DROP_LEGACY_COMPATIBILITY | `TestTSK659LiveSequentialSubmitAdmissionsAreTaskScoped` | live sequential-submit admission — GTW daemon |
-| `tsk667_live_outbox_text_test.go` | DROP_LEGACY_COMPATIBILITY | `TestTSK667LiveGatewayDrainsExistingTextRelationOutbox` | live outbox drain proof — GTW daemon |
+| `tsk655_live_gateway_test.go` | REWRITE_FOR_RSG | `TestTSK655LiveGatewayOperatorCLIUsesDaemonOwnedDurability` | daemon-owned durability via CLI — disposable harness; daemon-durability proof re-targeted |
+| `tsk657_submit_transport_live_test.go` | REWRITE_FOR_RSG | `TestTSK657LiveSubmitResponseLossReconcilesDurably` | response-loss→repeat reconciles exact durable outcome (Lead-inspected lines 28-129) — admission-reconciliation invariant; disposable harness |
+| `tsk659_sequential_submit_live_test.go` | REWRITE_FOR_RSG | `TestTSK659LiveSequentialSubmitAdmissionsAreTaskScoped` | task-scoped sequential admission — admission-scope invariant; disposable harness |
+| `tsk667_live_outbox_text_test.go` | REWRITE_FOR_RSG | `TestTSK667LiveGatewayDrainsExistingTextRelationOutbox` | existing-outbox drain/convergence — outbox-drain invariant; legacy-text subpart drops |
 
 **`cmd/gpt-tunnel-gatewayd`**
 
@@ -364,11 +373,11 @@ REPLACE_WITH_CONTRACT_HARNESS **25** | DROP_LEGACY_COMPATIBILITY **68** | UNCLEA
 |---|---|---|---|
 | `hub_sync_resilience_test.go` | REWRITE_FOR_RSG | `TestPostReadyHubSyncLoopRetriesTransientStateCheck` | post-ready remote-sync retry/lock-contention/convergence — sync resilience reusable for state-repo publication |
 | `main_test.go` | REWRITE_FOR_RSG | `TestHoldHubRepositoryLockHelper` | bootstrap readiness under remote lock/unavailable + degraded-mode behavior — daemon lifecycle proofs under new remote model |
-| `runtime_restart_candidate_e2e_test.go *(build-tag livee2e)*` | DROP_LEGACY_COMPATIBILITY | `(build-tag livee2e)` | livee2e-tagged candidate restart harness — GTW runtime environment |
-| `runtime_restart_candidate_e2e_tests_debug_activation_test.go *(build-tag livee2e)*` | DROP_LEGACY_COMPATIBILITY | `TestCandidateDebugActivateMCPNetworkE2E` | livee2e candidate debug-activate — GTW runtime |
-| `runtime_restart_candidate_e2e_tests_debug_setup_test.go *(build-tag livee2e)*` | DROP_LEGACY_COMPATIBILITY | `(build-tag livee2e)` | livee2e setup helpers — GTW runtime |
-| `runtime_restart_candidate_e2e_tests_restart_gate_test.go *(build-tag livee2e)*` | DROP_LEGACY_COMPATIBILITY | `TestCandidateGatewayRestartMCPNetworkE2E` | livee2e restart gate — GTW runtime |
-| `runtime_restart_candidate_e2e_tests_wait_debug_test.go *(build-tag livee2e)*` | DROP_LEGACY_COMPATIBILITY | `(build-tag livee2e)` | livee2e wait/debug — GTW runtime |
+| `runtime_restart_candidate_e2e_test.go *(build-tag livee2e)*` | UNCLEAR | `(build-tag livee2e)` | livee2e candidate-restart harness — depends on undecided candidate-restart feature (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
+| `runtime_restart_candidate_e2e_tests_debug_activation_test.go *(build-tag livee2e)*` | UNCLEAR | `TestCandidateDebugActivateMCPNetworkE2E` | livee2e candidate debug-activate — undecided debug-activation feature |
+| `runtime_restart_candidate_e2e_tests_debug_setup_test.go *(build-tag livee2e)*` | UNCLEAR | `(build-tag livee2e)` | livee2e setup helpers — required if restart/debug proofs kept (rehome/rebuild) (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
+| `runtime_restart_candidate_e2e_tests_restart_gate_test.go *(build-tag livee2e)*` | UNCLEAR | `TestCandidateGatewayRestartMCPNetworkE2E` | livee2e restart gate — undecided restart feature |
+| `runtime_restart_candidate_e2e_tests_wait_debug_test.go *(build-tag livee2e)*` | UNCLEAR | `(build-tag livee2e)` | livee2e wait/debug — undecided debug feature (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
 
 **`cmd/gpt-tunnelctl`**
 
@@ -388,15 +397,15 @@ REPLACE_WITH_CONTRACT_HARNESS **25** | DROP_LEGACY_COMPATIBILITY **68** | UNCLEA
 
 | File | Class | Evidence (representative test) | Rationale |
 |---|---|---|---|
-| `activate_local_procedure_test.go` | DROP_LEGACY_COMPATIBILITY | `TestTSK606ActivateLocalRejectsMismatchedAuthorityBeforeMutation` | GTW activate-local procedure content/authority — procedure corpus is GTW data |
+| `activate_local_procedure_test.go` | UNCLEAR | `TestTSK606ActivateLocalRejectsMismatchedAuthorityBeforeMutation` | authority-before-mutation + canonical-definition proofs — depends on undecided procedure-seed adoption |
 | `activate_test.go` | REWRITE_FOR_RSG | `TestRunBoundedCommandCapsCombinedOutput` | TestRunBoundedCommand*/TestBoundedDiagnostic* = generic bounded-subprocess invariants; live-MCP smoke parts drop with owner |
-| `activation_preflight_procedure_test.go` | DROP_LEGACY_COMPATIBILITY | `TestTSK627ActivationPreflightScriptEndToEnd` | GTW activation-preflight procedure content |
-| `candidate_migration_preflight_test.go` | DROP_LEGACY_COMPATIBILITY | `TestCandidatePreflightRejectsTSK602LegacyStateBeforeCutover` | candidate-activation preflight — owner surface undecided; fail-closed shape duplicated in service tests |
-| `candidate_smoke_test.go` | DROP_LEGACY_COMPATIBILITY | `TestSmokeCandidateReachesHTTPReadyWithinExistingDeadline` | candidate smoke reachability — GTW runtime |
-| `debug_test.go` | DROP_LEGACY_COMPATIBILITY | `TestDebugActivateRequiresConfiguredMainBranchBeforeMutation` | debug-activation provenance — owner undecided/dropped |
+| `activation_preflight_procedure_test.go` | UNCLEAR | `TestTSK627ActivationPreflightScriptEndToEnd` | preflight e2e/stale/dirty rejection — depends on undecided activation feature |
+| `candidate_migration_preflight_test.go` | UNCLEAR | `TestCandidatePreflightRejectsTSK602LegacyStateBeforeCutover` | pre-cutover rejection without live mutation — depends on undecided candidate-migration feature |
+| `candidate_smoke_test.go` | UNCLEAR | `TestSmokeCandidateReachesHTTPReadyWithinExistingDeadline` | candidate HTTP-ready smoke — depends on undecided candidate-activation feature |
+| `debug_test.go` | UNCLEAR | `TestDebugActivateRequiresConfiguredMainBranchBeforeMutation` | debug-activation exact-provenance/auth — depends on undecided debug-activation feature |
 | `proof_test.go` | REWRITE_FOR_RSG | `TestProveSourceRejectsInvalidSourceBeforeAnyActivation` | SHA256File exact-artifact digest + prove-source rejection — artifact-integrity invariant |
 | `recovery_snapshot_test.go` | REWRITE_FOR_RSG | `TestRecoverySnapshotRestoresMatchingArtifactsAndDurableState` | snapshot restores matching artifacts+durable state, rejects corrupt previous — generic recovery invariant |
-| `release_prod_procedure_test.go` | DROP_LEGACY_COMPATIBILITY | `TestTSK529ReleaseProdRejectsMismatchedAuthorityBeforeSideEffect` | GTW release-prod procedure content |
+| `release_prod_procedure_test.go` | UNCLEAR | `TestTSK529ReleaseProdRejectsMismatchedAuthorityBeforeSideEffect` | authority-before-side-effect + canonical definition — undecided release-procedure surface |
 
 **`internal/airelay`**
 
@@ -404,7 +413,7 @@ REPLACE_WITH_CONTRACT_HARNESS **25** | DROP_LEGACY_COMPATIBILITY **68** | UNCLEA
 |---|---|---|---|
 | `client_airelay_ensure_test.go` | REWRITE_FOR_RSG | `TestEnsureDetachedStartsOnceThenReusesHealthyWorker` | detached-worker once/reuse/recover/conflict + owned-stop — process-supervision invariants |
 | `client_airelay_validation_test.go` | REWRITE_FOR_RSG | `TestDeriveExecutionSessionKeyRemainsPureAndDeterministic` | pure deterministic session-key derivation + exact-lane validation |
-| `client_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — fixture helpers |
+| `client_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — fixture helpers (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
 | `client_tests_status_fixture_test.go` | REWRITE_FOR_RSG | `TestPromptUsesFixedArgumentVector` | fixed arg-vector, bounded child output, deadline, UTF-8 byte bound — subprocess-boundary invariants |
 | `client_tests_status_session_test.go` | REWRITE_FOR_RSG | `TestStatusPreservesNonZeroExitAsErrorState` | nonzero-exit-as-error + tail timeout/oversize rejection — subprocess-boundary invariants |
 | `client_tests_tail_status_fixture_test.go` | REWRITE_FOR_RSG | `TestTailUsesExactArgumentsAndNormalizesFixture` | exact args, bounded reads, status parse — subprocess-boundary invariants |
@@ -419,7 +428,7 @@ REPLACE_WITH_CONTRACT_HARNESS **25** | DROP_LEGACY_COMPATIBILITY **68** | UNCLEA
 
 | File | Class | Evidence (representative test) | Rationale |
 |---|---|---|---|
-| `delivery_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | empty package (stub) — no proof |
+| `delivery_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | empty package (stub) — no proof (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
 
 **`internal/config`**
 
@@ -436,19 +445,19 @@ REPLACE_WITH_CONTRACT_HARNESS **25** | DROP_LEGACY_COMPATIBILITY **68** | UNCLEA
 
 | File | Class | Evidence (representative test) | Rationale |
 |---|---|---|---|
-| `controller_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers |
+| `controller_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
 | `controller_tests_gate_read_test.go` | REWRITE_FOR_RSG | `TestLogsReadsStructuredRuntimeSource` | structured runtime-log read, bounded/sanitized delta, activate ordering+rollback — log-bound + activation-ordering invariants |
 | `controller_tests_process_test.go` | REWRITE_FOR_RSG | `TestProcessIdentitySurvivesAtomicBinaryReplacement` | process identity survives atomic binary replacement — process-identity invariant |
 | `endpoint_ownership_test.go` | REWRITE_FOR_RSG | `TestMain` | endpoint-owner proof, stale-orphan retire, foreign-config fail-closed — ownership invariants |
 | `env_test.go` | REWRITE_FOR_RSG | `TestReadTunnelEnvRequiresSecretsAndRejectsControllerBindings` | secrets binding rejection, open-permissions reject, env isolation, canonical ready-URL — security-boundary invariants |
 | `gateway_activation_durable_test.go` | REWRITE_FOR_RSG | `TestActivateGatewayRestoresMatchingDurableStateAndArtifacts` | durable snapshot/rollback semantics — durable-recovery invariants |
 | `gateway_only_lifecycle_test.go` | REWRITE_FOR_RSG | `TestGatewayOnlyLifecycleHelper` | start/stop serialization + one-managed-process isolation — supervision invariants |
-| `gateway_recovery_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers |
+| `gateway_recovery_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
 | `gateway_recovery_tests_gate_restart_core_test.go` | REWRITE_FOR_RSG | `TestGatewayRecoveryDuplicateOperationRestartsOneRealProcess` | duplicate-operation restarts one real process — idempotent-restart invariant |
 | `gateway_recovery_tests_gate_restart_test.go` | REWRITE_FOR_RSG | `TestAcceptGatewayRecoveryDefersWorkerUntilResponseRelease` | response-release deferral + terminal-receipt reuse + once-only restart — idempotency/recovery invariants |
 | `runtime_identity_test.go` | REWRITE_FOR_RSG | `TestCollectRuntimeIdentityMatchesRunningAndInstalledArtifacts` | runtime artifact matching + stale/incomplete rejection — artifact-identity invariant |
-| `status_test.go` | DROP_LEGACY_COMPATIBILITY | `TestRunningVersionUsesServerOwnedInitialize` | server-owned initialize — controller-coupled |
-| `systemd_daemon_test.go` | DROP_LEGACY_COMPATIBILITY | `TestDaemonUnitIsCanonicalSystemGatewayAndTunnelService` | canonical systemd unit/path — host-specific |
+| `status_test.go` | UNCLEAR | `TestRunningVersionUsesServerOwnedInitialize` | server-owned initialize — undecided daemon-control surface |
+| `systemd_daemon_test.go` | UNCLEAR | `TestDaemonUnitIsCanonicalSystemGatewayAndTunnelService` | canonical unit/path — undecided systemd packaging surface |
 
 **`internal/debug`**
 
@@ -474,7 +483,7 @@ REPLACE_WITH_CONTRACT_HARNESS **25** | DROP_LEGACY_COMPATIBILITY **68** | UNCLEA
 
 | File | Class | Evidence (representative test) | Rationale |
 |---|---|---|---|
-| `gates_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers |
+| `gates_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
 | `gates_tests_gate_test.go` | REWRITE_FOR_RSG | `TestGateTimingWarningIsNonfatalAndBounded` | bounded gate output, executor full-output-on-fail — gate-execution bounds |
 | `gates_tests_gate_token_test.go` | REWRITE_FOR_RSG | `TestResolveDefaultsToTheThreeStandardGates` | standard-gate set, token admission, format-scope — gate-token contract under new gate model |
 | `test_scope_test.go` | PRESERVE_INVARIANT | `TestResolveTestScopeMapsNestedGoFilesDeterministically` | reverse-transitive dep closure deterministic + fails-closed + docs-exempt — package-graph scope invariants (repo-agnostic mechanism) |
@@ -485,7 +494,7 @@ REPLACE_WITH_CONTRACT_HARNESS **25** | DROP_LEGACY_COMPATIBILITY **68** | UNCLEA
 |---|---|---|---|
 | `correction_test.go` | PRESERVE_INVARIANT | `TestChangedFilesUsesCommittedDiff` | committed-diff changed-files — diff invariant |
 | `default_branch_sync_test.go` | PRESERVE_INVARIANT | `TestSynchronizeDefaultBranchWorktreeStrictFastForwardAndIdempotence` | strict fast-forward/idempotent + dirty/wrong-branch/divergence rejection — sync invariants |
-| `git_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers |
+| `git_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
 | `git_tests_branch_resolution_test.go` | PRESERVE_INVARIANT | `TestMirrorReadsAllRefsWithoutSwitchingWorktree` | ref reads without worktree switch, worktree fingerprint, missing-branch distinguish — ref-resolution invariants |
 | `git_tests_mirror_reconciliation_test.go` | PRESERVE_INVARIANT | `TestReconcileManagedMirrorRejectsSymlink` | symlink/URL-conflict reject, canonical-head refresh, no-external-mutation — mirror invariants |
 | `local_revision_test.go` | REWRITE_FOR_RSG | `TestExactReadsPreferRegisteredManagedWorktree` | managed-worktree preference — managed-registry coupling |
@@ -504,7 +513,7 @@ REPLACE_WITH_CONTRACT_HARNESS **25** | DROP_LEGACY_COMPATIBILITY **68** | UNCLEA
 | File | Class | Evidence (representative test) | Rationale |
 |---|---|---|---|
 | `correction_test.go` | PRESERVE_INVARIANT | `TestWriteJSONRejectsSymlinkTraversal` | WriteJSON rejects symlink traversal — write-path safety invariant |
-| `hub_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers |
+| `hub_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
 | `hub_tests_hub_branch_test.go` | PRESERVE_INVARIANT | `TestConcurrentRepositoryWorkersRegainLock` | concurrent lock regain, operation attribution, ensure-preserve/mismatch-reject — remote-repo locking/ensure invariants |
 | `hub_tests_read_file_test.go` | PRESERVE_INVARIANT | `TestEnsureCreatesManagedCloneAndMissingBranch` | managed clone/branch ensure, bounded subphases, one-revision snapshot, per-file+aggregate bounds — remote-read invariants |
 | `snapshot_test.go` | PRESERVE_INVARIANT | `TestReadSnapshotServesReadsWithoutRefetch` | snapshot serves reads without refetch — snapshot invariance |
@@ -526,14 +535,14 @@ REPLACE_WITH_CONTRACT_HARNESS **25** | DROP_LEGACY_COMPATIBILITY **68** | UNCLEA
 | `agent_guide_test.go` | REWRITE_FOR_RSG | `TestTSK545AgentGuideIsClosedBoundedAndRoleAware` | closed bounded role-aware guide — guide contract under new roles |
 | `agent_local_authority_test.go` | REWRITE_FOR_RSG | `TestCanonicalAgentAwaitUsesLocalAuthorityWhenHubUnavailableAndLocked` | local authority when remote unavailable — authority-fallback invariant |
 | `agent_public_mcp_http_e2e_test.go` | UNCLEAR | `TestCanonicalAgentPublicMCPHTTPContractCoversAllActions` | agent public contract — agent model undecided |
-| `agent_session_helpers_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers |
+| `agent_session_helpers_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
 | `agent_session_test.go` | UNCLEAR | `TestAgentSessionToolsUseRegisteredProjectAndDoNotMutateDurableWorkflow` | agent session tooling — agent model undecided |
 | `apps_sdk_contract_test.go` | UNCLEAR | `TestRemovedRunToolsAreNotRegistered` | Apps-SDK tool contract — surface adoption undecided |
-| `apps_sdk_support_test.go` | UNCLEAR | `(no Test funcs)` | Apps-SDK support — undecided |
+| `apps_sdk_support_test.go` | UNCLEAR | `(no Test funcs)` | Apps-SDK support — undecided (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
 | `bounded_collection_contract_test.go` | PRESERVE_INVARIANT | `TestPublicGitRevisionInputsRejectFullObjectIDs` | fingerprint strictness, continuation-in-envelope, bounded contract — output-contract invariants (re-pointed at new corpus) |
 | `callback_public_e2e_test.go` | UNCLEAR | `TestCallbackActionsAreRemovedInFavorOfConfigurationHooks` | callback-removal + dynamic-procedure discovery — callback/procedure surface undecided |
-| `code_public_e2e_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — e2e helpers |
-| `code_public_e2e_tests_fixture_read_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — fixtures |
+| `code_public_e2e_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — e2e helpers (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
+| `code_public_e2e_tests_fixture_read_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — fixtures (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
 | `code_public_e2e_tests_local_search_test.go` | REWRITE_FOR_RSG | `TestPublicCodeSearchAndDiffOverflowE2ELocalSetup` | public code search/diff bounds + envelope E2E — code-action invariants under new corpus |
 | `code_public_e2e_tests_search_test.go` | REWRITE_FOR_RSG | `TestPublicCodeActionsE2EPerformanceAndPagination` | public code action E2E + pagination/context bounds |
 | `code_read_contract_test.go` | REWRITE_FOR_RSG | `TestCodeActionsAreSessionBoundAndProjectIsNotCallerSelectable` | session-bound code actions + token-budget pagination — code-contract invariants |
@@ -543,7 +552,7 @@ REPLACE_WITH_CONTRACT_HARNESS **25** | DROP_LEGACY_COMPATIBILITY **68** | UNCLEA
 | `frozen_connector_e2e_test.go` | REPLACE_WITH_CONTRACT_HARNESS | `TestADR84FrozenConnectorContract` | frozen connector contract — transport-frozen proof on new surface |
 | `gateway_status_shared_test.go` | REWRITE_FOR_RSG | `TestRuntimeStatusExposesRuntimeOnlyProjectionWithoutHub` | runtime-only projection without remote — local-authority status invariant |
 | `generic_action_behavior_parity_test.go` | REPLACE_WITH_CONTRACT_HARNESS | `TestTypedAndGenericTaskListParity` | typed↔generic parity — parity harness on new action set |
-| `generic_agent_actions_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers |
+| `generic_agent_actions_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
 | `generic_agent_actions_tests_agent_wait_core_test.go` | UNCLEAR | `TestCanonicalAgentMessageValidationUsesUTF8ByteBound` | agent await/message bounds — agent model undecided |
 | `generic_agent_actions_tests_agent_wait_test.go` | UNCLEAR | `TestTSK514AgentInventoryKeepsDisabledCodingAndHidesRetiredWatcher` | agent await/probe/cancellation — agent model undecided |
 | `generic_agent_tail_selection_test.go` | UNCLEAR | `TestGenericAgentTailSelectsOnlyUnambiguousDurableAgentSession` | durable-agent tail selection — undecided |
@@ -552,12 +561,12 @@ REPLACE_WITH_CONTRACT_HARNESS **25** | DROP_LEGACY_COMPATIBILITY **68** | UNCLEA
 | `generic_message_actions_test.go` | REWRITE_FOR_RSG | `TestTSK589MessageActionsAreClosedAndSessionBound` | closed session-bound message actions — message contract |
 | `generic_runtime_logs_test.go` | REWRITE_FOR_RSG | `TestRuntimeLogsIsBoundedReadOnlyGenericAction` | bounded read-only runtime logs + restart boundary receipt |
 | `generic_system_await_test.go` | PRESERVE_INVARIANT | `TestSystemAwaitCompletesWithTimingResult` | await completion/cancellation/budget/mutual-exclusion — generic await machinery invariants |
-| `generic_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers |
+| `generic_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
 | `generic_transport_pagination_test.go` | PRESERVE_INVARIANT | `TestGenericCallEnvelopeDetachesContinuationAndPreservesPayload` | continuation detachment/preservation, sanitization, frozen-path rejection — transport-pagination invariants |
 | `guide_binding_test.go` | REWRITE_FOR_RSG | `TestTSK532GuideActionsExposeApplicableSubjectsAndPlannerBinding` | guide subject/provenance fail-closed — guide contract |
 | `lifecycle_conflict_test.go` | PRESERVE_INVARIANT | `TestGenericTransportPreservesStructuredLifecycleConflict` | structured lifecycle-conflict transport preservation |
 | `managed_project_resolution_test.go` | REWRITE_FOR_RSG | `TestManagedProjectResolutionMCPCapabilitiesAndGitAreDynamic` | dynamic project resolution + fail-closed registry + git-surface exclusion |
-| `mcp7_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers |
+| `mcp7_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
 | `mcp7_tests_session_project_test.go` | REWRITE_FOR_RSG | `TestPublicSchemaFiltersActionsByImmutableSessionRole` | immutable-role schema filtering + project-bound session flow + corrupt-code fail-closed |
 | `mcp7_tests_session_status_test.go` | REWRITE_FOR_RSG | `TestBootstrapFirstPublicSurfaceIsExact` | bootstrap public surface exactness + token contract + role-rejection + fresh-after-terminate |
 | `operator_admin_session_test.go` | UNCLEAR | `TestOperatorAdminSessionRoutesMintAndRevokeThroughDaemonAuthority` | operator admin-session route — operator surface undecided |
@@ -570,8 +579,8 @@ REPLACE_WITH_CONTRACT_HARNESS **25** | DROP_LEGACY_COMPATIBILITY **68** | UNCLEA
 | `session_authority_test.go` | PRESERVE_INVARIANT | `TestGenericCallValidatesCompiledInputBeforeActionExecution` | compiled-input validation + per-action durable-session auth — auth-boundary invariants |
 | `session_bound_schema_test.go` | PRESERVE_INVARIANT | `TestSessionBoundActionSchemasDoNotExposeProjectID` | session-bound schemas hide project — schema-boundary invariant |
 | `session_test.go` | REWRITE_FOR_RSG | `TestSessionInputSchemaAdvertisesCanonicalActionsAndIDs` | session lifecycle/bootstrap/list — session contract under new role model |
-| `session_test_helpers_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers |
-| `task_authoring_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers |
+| `session_test_helpers_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
+| `task_authoring_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
 | `task_execution_test.go` | REWRITE_FOR_RSG | `TestTaskExecutionSchemasAreTaskIdentityOnly` | task-execution schema task-identity-only — contract |
 | `task_list_contract_test.go` | REWRITE_FOR_RSG | `TestTaskListSchemaUsesCanonicalBoundedSurface` | bounded task-list surface contract |
 | `tsk384_rule_actions_test.go` | REWRITE_FOR_RSG | `TestTSK384RuleActionSurfaceIsCanonicalAndComplete` | rule action surface completeness + closed schemas |
@@ -611,7 +620,7 @@ REPLACE_WITH_CONTRACT_HARNESS **25** | DROP_LEGACY_COMPATIBILITY **68** | UNCLEA
 | `tsk669_compact_output_contract_test.go` | REWRITE_FOR_RSG | `TestTSK669NormalOutputsRejectEchoesDefaultsAndTelemetry` | normal-output rejections + compact token cost |
 | `tsk670_task_execution_reset_contract_test.go` | REWRITE_FOR_RSG | `TestTSK670TaskResetContractAndPlannerAuthority` | reset contract + planner authority |
 | `tsk693_procedure_e2e_test.go` | UNCLEAR | `TestTSK693E2ETrackAcceptCrossProject` | procedure/e2e track-accept — procedure surface + GTW procedure undecided |
-| `workflow_policy_status_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers |
+| `workflow_policy_status_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
 | `public_code_performance_test.go *(build-tag liveperformance)*` | UNCLEAR | `TestPublicCodeLatencyPerformanceProfile` | liveperformance-tagged latency profile — timing-only, no recorded baseline |
 
 **`internal/model`**
@@ -624,10 +633,10 @@ REPLACE_WITH_CONTRACT_HARNESS **25** | DROP_LEGACY_COMPATIBILITY **68** | UNCLEA
 | `guide_applicability_test.go` | REWRITE_FOR_RSG | `TestGuideApplicabilityMatrixIsCompleteAndExplained` | applicability matrix completeness + closed deterministic projection |
 | `milestone_test.go` | REWRITE_FOR_RSG | `TestMilestoneLifecycleAndMembershipValidation` | milestone lifecycle/membership + bounded evidence references |
 | `operation_identifiers_test.go` | REWRITE_FOR_RSG | `TestOperationIdentifiersUseCanonicalProjectScopedFormat` | operation ID canonical project-scoped format — format re-authored |
-| `operator_journal_schema_oracle_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — oracle helper |
+| `operator_journal_schema_oracle_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — oracle helper (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
 | `operator_journal_schema_test.go` | UNCLEAR | `TestOperatorJournalStaticSchemaEvaluatesCompleteParityFixtures` | operator-journal schema parity fixtures — document-format adoption undecided |
 | `operator_journal_test.go` | UNCLEAR | `TestOperatorJournalKindParityAndStrictValidation` | operator-journal validation/IDs/correction semantics — document-format adoption undecided |
-| `project_callbacks_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers |
+| `project_callbacks_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
 | `project_configuration_test.go` | REWRITE_FOR_RSG | `TestProjectConfigurationV3DefaultsValidate` | config v3 defaults + procedure schema/hook compatibility — config-contract invariants |
 | `project_identifiers_test.go` | REWRITE_FOR_RSG | `TestProjectIdentifiersValidationAndCompactIDs` | identifier validation/compact-IDs/integer-parity — ID semantics |
 | `sectional_plan_test.go` | REWRITE_FOR_RSG | `TestPlanSchemaV2ValidationRejectsLegacyAndDuplicateSections` | plan v2 schema strictness + legacy/duplicate rejection — plan format adoption conditional |
@@ -687,8 +696,8 @@ REPLACE_WITH_CONTRACT_HARNESS **25** | DROP_LEGACY_COMPATIBILITY **68** | UNCLEA
 | `journal_stream_test.go` | REWRITE_FOR_RSG | `TestJournalContractExposesClosedStreams` | closed streams, writer authority, contract-before-commit, durable publish — journal invariants |
 | `liveness_progress_test.go` | REWRITE_FOR_RSG | `TestProjectStatusAggregatesProgressWithoutSessionIdentity` | progress aggregation + retired-family/corruption tolerance |
 | `local_code_inspection_latency_test.go` | REWRITE_FOR_RSG | `TestCodeSearchCleanMainResolutionFunctional` | clean-main resolution correctness — inspection invariant |
-| `local_code_inspection_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers |
-| `local_code_inspection_test_doubles_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — fixture doubles |
+| `local_code_inspection_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
+| `local_code_inspection_test_doubles_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — fixture doubles (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
 | `local_code_inspection_tests_local_fixture_test.go` | PRESERVE_INVARIANT | `TestLocalCodeInspectionUsesCleanAncestorAndBoundedCommittedObjects` | clean-ancestor + bounded committed-object reads — inspection invariants |
 | `local_code_inspection_tests_local_search_test.go` | PRESERVE_INVARIANT | `TestCodeWorktreeIgnoresHistoricalHotfixLane` | exact scan-position continuation + bounded context + selector distinctness |
 | `local_code_inspection_tests_ranges_test.go` | PRESERVE_INVARIANT | `TestLocalCodeReadSupportsExactBoundedRangesAndContinuation` | exact bounded ranges + compact continuation |
@@ -702,10 +711,10 @@ REPLACE_WITH_CONTRACT_HARNESS **25** | DROP_LEGACY_COMPATIBILITY **68** | UNCLEA
 | `milestone_plan_test.go` | REWRITE_FOR_RSG | `TestTSK663MilestonePlanRendersCurrentTracksAndUngroupedTasks` | plan rendering + output bound — milestone-plan invariant |
 | `not_found_test.go` | PRESERVE_INVARIANT | `TestIsNotFoundUsesTypedWrappedErrorsOnly` | typed wrapped-error only — error-semantics invariant |
 | `operation_recovery_test.go` | PRESERVE_INVARIANT | `TestRecoverRunningDurableMutationForStartup` | startup recovery, bounded ctx, no-replay, per-kind timeout, bounded-captured-state compat — durable-mutation recovery invariants |
-| `operator_journal_evidence_seed_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — seed helpers |
+| `operator_journal_evidence_seed_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — seed helpers (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
 | `operator_token_test.go` | REWRITE_FOR_RSG | `TestOperatorTokenIsStableOwnerPrivateAndValidated` | stable owner-private validated token — token invariant |
 | `procedure_execution_test.go` | REWRITE_FOR_RSG | `TestProcedureExecutionUsesBoundedStructuredEnvelope` | bounded structured envelope, non-Go script, invalid-output/escaping-path reject, hook operation allocation — procedure-sandbox invariants |
-| `project_configuration_async_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers |
+| `project_configuration_async_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
 | `project_configuration_async_tests_project_config_core_test.go` | REWRITE_FOR_RSG | `TestProjectConfigurationMutationsDoNotAllocateOperations` | config mutations allocate no operations — mutation semantics |
 | `project_configuration_async_tests_project_config_test.go` | REWRITE_FOR_RSG | `TestProjectConfigurationReadUsesSharedWhenHubUnavailable` | shared-read fallback, CAS+outbox mutation, planner+reason gate, canonical payload — config-authority invariants |
 | `project_configuration_hub_migration_test.go` | DROP_LEGACY_COMPATIBILITY | `TestProjectConfigurationHubMigrationFailsClosedOnRetiredGateCommands` | GTW hub-config migration content |
@@ -719,7 +728,7 @@ REPLACE_WITH_CONTRACT_HARNESS **25** | DROP_LEGACY_COMPATIBILITY **68** | UNCLEA
 | `sectional_plan_test.go` | UNCLEAR | `TestPlanCutoverPreservesLegacySemanticsAndIsOneTime` | plan cutover/retired mutations — plan format undecided |
 | `service_gates_test.go` | REWRITE_FOR_RSG | `TestResolveProjectGatesUsesProjectPolicyAndLegacyDefault` | project-policy gates, server-owned results, resolved-scope receipts — gate-resolution invariants |
 | `service_startup_test.go` | REWRITE_FOR_RSG | `TestStartupServiceDefersDurableRecoveryWorkers` | deferred durable-recovery workers — startup invariant |
-| `service_test_helpers_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers |
+| `service_test_helpers_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
 | `service_tests_helpers_tests_session_fixture_test.go` | DROP_LEGACY_COMPATIBILITY | `TestValidateConfiguredProjectRecordsRejectsMissingDurableRecord` | fixture-validation helper — rehome with fixtures |
 | `service_tests_helpers_tests_task_project_test.go` | REWRITE_FOR_RSG | `TestTaskCreateRequiresDurableProjectRecordWithoutGitLookup` | task-create requires durable project record — authority invariant |
 | `session_test.go` | REWRITE_FOR_RSG | `TestServiceSessionLifecycleUsesRegisteredProject` | session lifecycle uses registered project |
@@ -727,13 +736,13 @@ REPLACE_WITH_CONTRACT_HARNESS **25** | DROP_LEGACY_COMPATIBILITY **68** | UNCLEA
 | `shared_restore_test.go` | PRESERVE_INVARIANT | `TestPortableHubRestoreHydratesTrackRelationsAndSequences` | restore hydrates relations/sequences + converges — restore invariants |
 | `state_check_snapshot_test.go` | REWRITE_FOR_RSG | `TestStateCheckWithoutDurabilityUsesLocalConfigurationWithoutHub` | local-only state check when remote unavailable/locked — local-authority invariant |
 | `task_authoring_authoring_helpers_test.go` | REWRITE_FOR_RSG | `TestTaskAuthoringFindSkipsEarlierLegacyProject` | legacy-project skip — authority invariant |
-| `task_authoring_authoring_lifecycle_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers |
+| `task_authoring_authoring_lifecycle_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
 | `task_authoring_ready_async_test.go` | REWRITE_FOR_RSG | `TestTaskAuthoringReadyAsyncIsBoundedAndIdempotent` | bounded idempotent ready — durable-async invariant |
-| `task_authoring_shared_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers |
+| `task_authoring_shared_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
 | `task_authoring_shared_tests_shared_task_test.go` | REWRITE_FOR_RSG | `TestSharedQueriesScopeBeforeGlobalPageLimit` | scope-before-page-limit, dedupe, degraded-remote commit, ready-requires-integration — shared-authority invariants |
 | `task_authoring_shared_tests_task_shared_core_test.go` | REWRITE_FOR_RSG | `TestFreshSharedBaselineAllowsAuthoringWithoutBootstrapMarker` | fresh baseline authoring without bootstrap marker |
 | `task_authoring_shared_tests_task_shared_test.go` | REWRITE_FOR_RSG | `TestTaskAuthoringAsyncMutationsCommitSharedBeforeHubSync` | commit-before-sync + shared-read authority — authority invariants |
-| `task_authoring_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers |
+| `task_authoring_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
 | `task_authoring_update_async_test.go` | REWRITE_FOR_RSG | `TestTaskAuthoringUpdateAsyncIsBoundedIdempotentAndRestartReadable` | bounded idempotent restart-readable update |
 | `task_complete_canonical_journal_test.go` | REWRITE_FOR_RSG | `TestTaskCompleteAcceptsCanonicalPlannerNotesReview` | canonical journal-review acceptance — completion-evidence invariant |
 | `task_create_async_test.go` | REWRITE_FOR_RSG | `TestTaskAuthoringCreateAsyncIsDurableAndIdempotent` | durable idempotent create |
@@ -756,7 +765,7 @@ REPLACE_WITH_CONTRACT_HARNESS **25** | DROP_LEGACY_COMPATIBILITY **68** | UNCLEA
 | `tsk531_task_sequence_test.go` | REWRITE_FOR_RSG | `TestTSK531TaskCreateUsesReconciledSequence` | reconciled-sequence allocation |
 | `tsk552_binding_refresh_test.go` | REWRITE_FOR_RSG | `TestTSK552BindingWriteRestoresBytesWhenRefreshFails` | bytes-restore on failed refresh + live binding refresh — binding invariant |
 | `tsk552_bootstrap_test.go` | REWRITE_FOR_RSG | `TestTSK552ProjectOnboardDerivesCwdIdentityAndIsIdempotent` | onboard derivation/idempotence/conflict + agent isolation — bootstrap invariants (role subpart re-authored) |
-| `tsk585_durable_clock_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — durable-clock helper |
+| `tsk585_durable_clock_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — durable-clock helper (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
 | `tsk585_task_execution_regression_test.go` | REPLACE_WITH_CONTRACT_HARNESS | `TestTSK622DispatchUsesWorkerActionableOwnership` | dispatch-ownership/rework-review/end-to-end execution contract — reprove on new surface |
 | `tsk585_task_lifecycle_regression_test.go` | REPLACE_WITH_CONTRACT_HARNESS | `TestTSK585TaskCompleteIntegrated` | complete integrated/noncode/historical + authority + atomic rollback — reprove on new surface |
 | `tsk600_agent_runtime_test.go` | UNCLEAR | `TestTSK600TwoEnabledAgentsBindLeadAndWorkerRuntimes` | runtime binding/collision/enable-disable — agent model undecided |
@@ -800,7 +809,7 @@ REPLACE_WITH_CONTRACT_HARNESS **25** | DROP_LEGACY_COMPATIBILITY **68** | UNCLEA
 | File | Class | Evidence (representative test) | Rationale |
 |---|---|---|---|
 | `admin_session_test.go` | UNCLEAR | `TestAdminSessionIsDurableMachineScopedAndRevocable` | durable machine-scoped admin session — admin surface undecided |
-| `store_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers |
+| `store_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
 | `store_tests_create_session_test.go` | REWRITE_FOR_RSG | `TestStoreSQLiteLifecycleHasNoSessionJSONAuthority` | unique-ID concurrent create, one-record bind, idempotent end — store invariants; legacy-untouched subpart drops |
 | `store_tests_legacy_payload_test.go` | REWRITE_FOR_RSG | `TestStoreUpdateUsesStoredPayloadForLegacyRecordShape` | stored-payload CAS under stale reads — CAS invariant; legacy-shape subpart drops |
 | `store_tests_session_test.go` | REWRITE_FOR_RSG | `TestTSK578LegacyIDsAreRejectedAndNotTranslated` | legacy-ID rejection — ID-format invariant |
@@ -815,7 +824,7 @@ REPLACE_WITH_CONTRACT_HARNESS **25** | DROP_LEGACY_COMPATIBILITY **68** | UNCLEA
 | `callback_epochs_test.go` | UNCLEAR | `TestCallbackEpochRequiresRealWorkAndSurvivesRestart` | callback epoch durability — callback model undecided |
 | `database_snapshot_test.go` | PRESERVE_INVARIANT | `TestSnapshotDatabasesIsOnlineConsistentAndRestorable` | online-consistent snapshot + oversized/symlink rejection — snapshot invariants |
 | `databases_hard_cut_migration_test.go` | REWRITE_FOR_RSG | `TestFreshBaselinesAreTheOnlyMarkersAndReopen` | marker semantics + legacy/unknown-history fail-closed — bounded-migration mechanism invariants |
-| `databases_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — shared fixtures |
+| `databases_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — shared fixtures (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
 | `databases_tests_shared_migration_test.go` | REWRITE_FOR_RSG | `TestSharedMigrationHistoryPreservesReleasedVersionsBeforeCandidates` | released-version history preservation — migration-history invariant |
 | `databases_tests_shared_server_test.go` | PRESERVE_INVARIANT | `TestOpenMigratesTwoIndependentStoresAndSharedCASIsAtomic` | two-store CAS atomicity + second-owner reject + lock/observer phases — store-open invariants |
 | `local_operations_test.go` | PRESERVE_INVARIANT | `TestLocalOperationAllocationIsCompactMonotonicIsolatedAndRestartSafe` | compact monotonic isolated restart-safe allocation + concurrency — sequence/CAS invariants |
@@ -843,7 +852,7 @@ REPLACE_WITH_CONTRACT_HARNESS **25** | DROP_LEGACY_COMPATIBILITY **68** | UNCLEA
 | `tsk531_summary_migration_test.go` | REWRITE_FOR_RSG | `TestTSK531SummaryMigrationPreservesLegacyPayloadAndAddsOneRevision` | payload preserve + one revision + conflict reject |
 | `tsk531_task_lifecycle_authority_test.go` | REWRITE_FOR_RSG | `TestTSK531TaskLifecycleHardCutCopiesFieldExactlyAndCuts` | hard-cut field copy, atomic transitions, upgrade-from-old-store — lifecycle-authority invariants |
 | `tsk531_task_sequence_migration_test.go` | REWRITE_FOR_RSG | `TestTSK531TaskSequenceMigrationRepairsAndPreservesAllocators` | allocator repair/preserve + project isolation |
-| `tsk538_schema_assertions_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — assertion helpers |
+| `tsk538_schema_assertions_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — assertion helpers (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
 | `tsk580_token_usage_test.go` | UNCLEAR | `TestTSK580TokenUsageIsAtomicDeduplicatedAndBodyFree` | atomic dedup body-free usage — telemetry adoption undecided |
 | `tsk585_task_completion_regression_test.go` | REWRITE_FOR_RSG | `TestTSK585TaskCompletionStoreValidation` | completion-store validation + history cursor ordering + lifecycle events |
 | `tsk620_agent_identity_migration_test.go` | UNCLEAR | `TestTSK620NonterminalExecutionIdentityMigrationPreservesTerminalHistoryAcrossRestart` | agent identity preserve/collision — agent model undecided |
@@ -878,23 +887,23 @@ REPLACE_WITH_CONTRACT_HARNESS **25** | DROP_LEGACY_COMPATIBILITY **68** | UNCLEA
 | `upgrade_test_rollback_test.go` | REWRITE_FOR_RSG | `TestRunnerRunSuccessfulRollbackProofClosure` | rollback proof closure + cleanup-failure retains backup |
 | `upgrade_test_runtime_test.go` | REWRITE_FOR_RSG | `TestRollbackBackupCleanupPolicy` | lock contention/reacquire + version ordering rejection |
 | `upgrade_test_success_test.go` | REWRITE_FOR_RSG | `TestRunnerRunSuccessProofClosure` | runner success proof closure |
-| `upgrade_test_support_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers |
+| `upgrade_test_support_test.go` | DROP_LEGACY_COMPATIBILITY | `(no Test funcs)` | no Test functions — helpers (helpers/fixtures required by any kept proof must be rehomed/rebuilt — zero Test funcs ≠ zero harness dependency) |
 
 ### 8.1 Per-package test totals (derived from the ledger rows)
 
 | Package | P | R | H | D | U | Total |
 |---|---|---|---|---|---|---|
 | cmd/gofmt-struct | 1 | 0 | 0 | 0 | 0 | 1 |
-| cmd/gpt-tunnel | 1 | 2 | 13 | 7 | 0 | 23 |
-| cmd/gpt-tunnel-gatewayd | 0 | 2 | 0 | 5 | 0 | 7 (2 active + 5 livee2e) |
+| cmd/gpt-tunnel | 1 | 7 | 13 | 2 | 0 | 23 |
+| cmd/gpt-tunnel-gatewayd | 0 | 2 | 0 | 0 | 5 | 7 (2 active + 5 livee2e) |
 | cmd/gpt-tunnelctl | 0 | 0 | 0 | 0 | 2 | 2 |
 | internal/actioncontract | 2 | 0 | 0 | 0 | 0 | 2 |
-| internal/activation | 0 | 3 | 0 | 6 | 0 | 9 |
+| internal/activation | 0 | 3 | 0 | 0 | 6 | 9 |
 | internal/airelay | 0 | 5 | 0 | 1 | 0 | 6 |
 | internal/authority | 0 | 1 | 0 | 0 | 0 | 1 |
 | internal/callbackdelivery | 0 | 0 | 0 | 1 | 0 | 1 |
 | internal/config | 3 | 2 | 0 | 1 | 0 | 6 |
-| internal/controller | 0 | 9 | 0 | 4 | 0 | 13 |
+| internal/controller | 0 | 9 | 0 | 2 | 2 | 13 |
 | internal/debug | 0 | 3 | 0 | 0 | 0 | 3 |
 | internal/entity | 0 | 1 | 0 | 0 | 0 | 1 |
 | internal/fsutil | 1 | 0 | 0 | 0 | 0 | 1 |
@@ -915,7 +924,7 @@ REPLACE_WITH_CONTRACT_HARNESS **25** | DROP_LEGACY_COMPATIBILITY **68** | UNCLEA
 | internal/tailcursor | 1 | 0 | 0 | 0 | 0 | 1 |
 | internal/tokenizer | 1 | 0 | 0 | 0 | 0 | 1 |
 | internal/upgrade | 0 | 8 | 0 | 3 | 0 | 11 |
-| **Total** | **52** | **213** | **25** | **68** | **43** | **401** |
+| **Total** | **52** | **218** | **25** | **50** | **56** | **401** |
 
 ## 9. Rejected / failed / corrected calls (evidence)
 
@@ -927,18 +936,33 @@ REPLACE_WITH_CONTRACT_HARNESS **25** | DROP_LEGACY_COMPATIBILITY **68** | UNCLEA
   latency) — retried successfully; Lead's frozen measurement files then read.
 - **Lead-reported, carried verbatim:** Lead code/worktree failed resolving `refs/heads/main`
   before dispatch — no repair attempted; analysis ran in the assigned worktree.
-- **v1 errors corrected here:** entity/actioncontract/publicprojection/gitx wrongly labeled
-  uncoupled KEEP (now REWORK with cited constants); "Hub authority is naming-only" claims removed
-  and replaced by the §4 synchronous-coupling map; host/runtime DROP justified by file-level
-  audit instead of inference; test ledger replaced guess-counts with per-path rows; workflowrole
-  40→97 lines; `durableMutationExecutionSet` filenames verified real rather than assumed;
-  migration file counts now exact (38 prod / 21 test); `static-check.py` run is now honestly
-  recorded in §1.2 instead of the contradictory "no checks" claim; `cmd/gpt-tunnel-gatewayd`
-  test count corrected to 7 (2 active + 5 `livee2e`), mcp to 94 (93+1), service to 121 (120+1);
-  config row file names corrected to actual `managed_projects_{effective,json,schema,storage}`;
-  service HARNESS row deduplicated (5 files, not 9); hub test split corrected to 4 PRESERVE +
-  1 helper-DROP (`hub_test.go` has zero `Test` functions); `apps_sdk_*` and
-  `task_execution_locality_migration` now have a single class each (UNCLEAR / REWRITE).
+- **v1 errors corrected in the prior revision:** entity/actioncontract/publicprojection/gitx
+  wrongly labeled uncoupled KEEP (now REWORK with cited constants); "Hub authority is
+  naming-only" claims removed and replaced by the §4 synchronous-coupling map; host/runtime
+  DROP justified by file-level audit instead of inference; test ledger replaced guess-counts
+  with per-path rows; workflowrole 40→97 lines; `durableMutationExecutionSet` filenames verified
+  real (Lead's concern disproved by evidence — carried forward, no rename/delete); migration
+  file counts now exact (38 prod / 21 test); `static-check.py` run recorded; per-package test
+  counts corrected to frozen denominators; config row file names corrected; service HARNESS
+  deduplicated to 5; hub split corrected to 4 PRESERVE + 1 helper; `apps_sdk_*` and
+  `task_execution_locality_migration` each hold a single class.
+- **v2 errors corrected in this revision (per GTW-MSG16):**
+  - Direct deps now named (not "N internal") in §2.2/§2.3 and Appendix A; mcp direct internal
+    edges corrected 16→**17**.
+  - **False migrate-elimination claim fixed:** `shared_lifecycle_event.go:14` +
+    `databases_{shared,local}_baseline.go` import `go-sqlite-store/migrate` for **current**
+    schema DDL (`sharedLifecycleEventMigration` `:23-45`) — schema creation is interleaved with
+    core code; the migrate edge stays until retained-table initializers are re-authored
+    (§2.2/§6.2/§6.3/§6.4 amended).
+  - Five `cmd/gpt-tunnel` live-harness tests moved DROP→REWRITE (disposable
+    `testutil.NewLiveGateway`, not owner production; durable-boundary proofs remain).
+  - Tagged livee2e restart/debug proofs, activation procedure/smoke/candidate tests and
+    controller status/systemd tests moved DROP→UNCLEAR with concrete undecided-feature
+    questions; "no Test funcs" helper rows now carry the explicit rehome/rebuild note; the
+    unproven "duplicated elsewhere" claim removed.
+  - Scripts counts exact (29+10=39); `static-check.py` reclassified REWORK (embedded GTW
+    inventories); `go run` record corrected to tool-invocation-attempted wording.
+  - Integration blocker recorded honestly in §10.
 - No other rejected canonical calls; all file reads were read-only.
 
 ## 10. Submission evidence
@@ -951,3 +975,54 @@ REPLACE_WITH_CONTRACT_HARNESS **25** | DROP_LEGACY_COMPATIBILITY **68** | UNCLEA
 - All classifications remain **nonnormative evidence** for Planner/Review per JRN42/43; open
   decisions (RSG role model, remote-authority model, agent/runtime-surface adoption, document
   formats, release/upgrade/activation features) are marked UNCLEAR rather than resolved here.
+- **Integration blocker (honest record):** Lead's code/worktree still cannot resolve
+  `refs/heads/main` after the rework (per GTW-MSG16); typed operator-root status is clean on
+  branch `review/corrective-design-second-pass-20261004-2159` (head `a4e98ada`). The frozen
+  inspected identity in §1 is the assigned **task base** — it is not claimed to be the current
+  canonical main or operator checkout. No repair to refs/config attempted; no lifecycle
+  verification is claimed; Lead owns canonical final verification/integration/Track submission.
+
+## Appendix A — frozen package adjacency (Lead `go list -json`, verbatim)
+
+Direct internal imports, direct external Go imports, and transitive external modules (from
+frozen `Deps`, non-stdlib filtered) per package. Runtime dependencies are per §1.1, not in this
+table.
+
+| Package | Direct internal imports | Direct external Go imports | Transitive external modules |
+|---|---|---|---|
+| `cmd/gofmt-struct` | `internal/gofmtstruct` | — | — |
+| `cmd/gpt-tunnel` | `internal/agentguide`, `internal/config`, `internal/controller`, `internal/gates`, `internal/gitx`, `internal/model`, `internal/publicprojection`, `internal/releaseartifacts`, `internal/service` | — | `github.com/dlclark`, `github.com/google`, `github.com/pkoukk`, `github.com/rceman`, `gopkg.in/yaml.v3` |
+| `cmd/gpt-tunnel-gatewayd` | `internal/authority`, `internal/config`, `internal/controller`, `internal/debug`, `internal/hub`, `internal/mcp`, `internal/model`, `internal/releaseartifacts`, `internal/service`, `internal/session`, `internal/sqlitestore` | — | `github.com/dlclark`, `github.com/google`, `github.com/pkoukk`, `github.com/rceman`, `gopkg.in/yaml.v3` |
+| `cmd/gpt-tunnelctl` | `internal/activation`, `internal/config`, `internal/controller`, `internal/fsutil`, `internal/releaseartifacts`, `internal/service`, `internal/upgrade` | — | `github.com/dlclark`, `github.com/google`, `github.com/pkoukk`, `github.com/rceman`, `gopkg.in/yaml.v3` |
+| `contracts` | — | — | — |
+| `internal/actioncontract` | `contracts` | `gopkg.in/yaml.v3` | `gopkg.in/yaml.v3` |
+| `internal/activation` | `internal/config`, `internal/controller`, `internal/fsutil`, `internal/mcpmanifest`, `internal/releaseartifacts`, `internal/sqlitestore` | — | `github.com/rceman` |
+| `internal/agentguide` | — | — | — |
+| `internal/airelay` | `internal/session` | — | `github.com/rceman` |
+| `internal/authority` | `internal/session` | — | `github.com/rceman` |
+| `internal/callbackdelivery` | — | — | — |
+| `internal/config` | `internal/fsutil`, `internal/lockfile` | — | — |
+| `internal/controller` | `internal/config`, `internal/fsutil`, `internal/lockfile`, `internal/releaseartifacts`, `internal/runtime_log` | — | — |
+| `internal/debug` | `internal/activation`, `internal/config`, `internal/controller`, `internal/fsutil`, `internal/lockfile` | — | `github.com/rceman` |
+| `internal/entity` | `internal/model`, `internal/pagination` | — | — |
+| `internal/fsutil` | — | — | — |
+| `internal/gates` | `internal/model`, `internal/tokenizer` | — | `github.com/dlclark`, `github.com/google`, `github.com/pkoukk` |
+| `internal/gitx` | `internal/config`, `internal/model`, `internal/pagination` | — | — |
+| `internal/gofmtstruct` | — | — | — |
+| `internal/hub` | `internal/config`, `internal/fsutil`, `internal/lockfile`, `internal/model`, `internal/runtime_log` | — | — |
+| `internal/lockfile` | — | — | — |
+| `internal/mcp` | `internal/actioncontract`, `internal/agentguide`, `internal/airelay`, `internal/authority`, `internal/config`, `internal/controller`, `internal/debug`, `internal/hub`, `internal/mcpmanifest`, `internal/model`, `internal/pagination`, `internal/publicprojection`, `internal/runtime_log`, `internal/service`, `internal/session`, `internal/sqlitestore`, `internal/tokenizer` | — | `github.com/dlclark`, `github.com/google`, `github.com/pkoukk`, `github.com/rceman`, `gopkg.in/yaml.v3` |
+| `internal/mcpmanifest` | — | — | — |
+| `internal/model` | `internal/workflowrole` | — | — |
+| `internal/pagination` | — | — | — |
+| `internal/publicprojection` | — | — | — |
+| `internal/releaseartifacts` | — | — | — |
+| `internal/runtime_log` | `internal/lockfile`, `internal/pagination` | — | — |
+| `internal/service` | `internal/actioncontract`, `internal/activation`, `internal/airelay`, `internal/authority`, `internal/config`, `internal/controller`, `internal/entity`, `internal/fsutil`, `internal/gates`, `internal/gitx`, `internal/hub`, `internal/lockfile`, `internal/model`, `internal/pagination`, `internal/publicprojection`, `internal/runtime_log`, `internal/session`, `internal/sqlitestore`, `internal/tokenizer`, `internal/workflowrole` | `github.com/rceman/go-sqlite-store/store` | `github.com/dlclark`, `github.com/google`, `github.com/pkoukk`, `github.com/rceman`, `gopkg.in/yaml.v3` |
+| `internal/session` | `internal/model`, `internal/sqlitestore`, `internal/workflowrole` | — | `github.com/rceman` |
+| `internal/sqlitestore` | `internal/model`, `internal/pagination` | `github.com/rceman/go-sqlite-store/migrate`, `github.com/rceman/go-sqlite-store/store` | `github.com/rceman` |
+| `internal/tailcursor` | — | — | — |
+| `internal/testutil` | `internal/config`, `internal/sqlitestore` | `github.com/rceman/go-sqlite-store/store` | `github.com/rceman` |
+| `internal/tokenizer` | — | `github.com/pkoukk/tiktoken-go` | `github.com/dlclark`, `github.com/google`, `github.com/pkoukk` |
+| `internal/upgrade` | `internal/activation`, `internal/config`, `internal/controller`, `internal/fsutil`, `internal/gitx`, `internal/lockfile`, `internal/releaseartifacts`, `internal/service` | — | `github.com/dlclark`, `github.com/google`, `github.com/pkoukk`, `github.com/rceman`, `gopkg.in/yaml.v3` |
+| `internal/workflowrole` | — | — | — |
