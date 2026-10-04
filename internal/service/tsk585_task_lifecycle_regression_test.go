@@ -146,7 +146,7 @@ func TestTSK585TaskCompleteIntegrated(t *testing.T) {
 		testsPhases, testsErr = db.ReadTaskExecutionPhases(ctx, "example", task.ID, "tests")
 		rebasePhases, rebaseErr = db.ReadTaskExecutionPhases(ctx, "example", task.ID, "rebase")
 		integrationPhases, integrationErr = db.ReadTaskExecutionPhases(ctx, "example", task.ID, "integration")
-		currentReceipt, currentOK, _, currentErr := s.taskExecutionVerificationProofCurrent(ctx, stateDiag)
+		currentReceipt, currentOK, _, _, currentErr := s.taskExecutionVerificationProofCurrent(ctx, stateDiag)
 		t.Fatalf("first completion: %v state=%#v stateFound=%v stateErr=%v receipt=%#v receiptFound=%v receiptErr=%v currentReceipt=%#v currentOK=%v currentErr=%v code=%#v codeErr=%v tests=%#v testsErr=%v rebase=%#v rebaseErr=%v integration=%#v integrationErr=%v", err, stateDiag, stateFound, stateErr, receiptDiag, receiptFound, receiptErr, currentReceipt, currentOK, currentErr, codePhases, codeErr, testsPhases, testsErr, rebasePhases, rebaseErr, integrationPhases, integrationErr)
 	}
 	if out != (TaskCompleteOutput{

@@ -1001,7 +1001,7 @@ func TestTSK675ProcedureProfileChangeInvalidatesVerificationReceipt(t *testing.T
 	if _, err := db.Shared.Exec(ctx, `UPDATE shared_project_configurations SET revision=?,payload=?,updated_at=? WHERE id=?`, configuration.Revision, payload, configuration.UpdatedAt.UTC().Format(time.RFC3339Nano), configuration.ProjectID); err != nil {
 		t.Fatal(err)
 	}
-	_, current, reason, err := s.taskExecutionVerificationProofCurrent(ctx, state)
+	_, current, _, reason, err := s.taskExecutionVerificationProofCurrent(ctx, state)
 	if err != nil || current {
 		t.Fatalf("receipt remained current after Procedure definition changed: current=%v reason=%q err=%v", current, reason, err)
 	}

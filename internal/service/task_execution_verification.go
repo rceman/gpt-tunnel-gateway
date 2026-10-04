@@ -150,7 +150,7 @@ func (s *Service) reuseCurrentTaskExecutionVerification(ctx context.Context, sta
 	if state.Status != model.TaskExecutionVerified || !admission.snapshot.clean || admission.snapshot.head != state.Head {
 		return TaskExecutionTestReceipt{}, false, nil
 	}
-	receipt, current, _, err := s.taskExecutionVerificationProofCurrent(ctx, state)
+	receipt, current, _, _, err := s.taskExecutionVerificationProofCurrent(ctx, state)
 	if err != nil {
 		return TaskExecutionTestReceipt{}, false, err
 	}
@@ -442,47 +442,47 @@ func taskExecutionVerificationBinds(receipt model.TaskExecutionVerification, sta
 	return receipt.ProjectID == state.ProjectID && receipt.TaskID == state.TaskID && receipt.TaskRevision == state.TaskRevision && receipt.TaskRevisionSHA256 == state.TaskRevisionSHA256 && receipt.BaseHead == state.BaseHead && receipt.CandidateHead == state.Head && receipt.Branch == state.Branch && receipt.AttemptRevision < state.ExecutionRevision
 }
 
-func (s *Service) taskExecutionVerificationProofCurrent(ctx context.Context, state model.TaskExecutionState) (model.TaskExecutionVerification, bool, string, error) {
+func (s *Service) taskExecutionVerificationProofCurrent(ctx context.Context, state model.TaskExecutionState) (model.TaskExecutionVerification, bool, bool, string, error) {
 	receipt, found, legacy, err := s.Durability.ReadLatestTaskExecutionVerificationTolerant(ctx, state.ProjectID, state.TaskID)
 	if err != nil {
-		return model.TaskExecutionVerification{}, false, "", err
+		return model.TaskExecutionVerification{}, false, false, "", err
 	}
 	if legacy {
-		return receipt, false, "Task verification receipt predates the current gate contract", nil
+		return receipt, false, true, "Task verification receipt predates the current gate contract", nil
 	}
 	if !found {
-		return model.TaskExecutionVerification{}, false, "no Task verification receipt", nil
+		return model.TaskExecutionVerification{}, false, true, "no Task verification receipt", nil
 	}
 	if receipt.Outcome != model.TaskExecutionVerificationSucceeded {
-		return receipt, false, "receipt outcome is not succeeded", nil
+		return receipt, false, false, "receipt outcome is not succeeded", nil
 	}
 	if !taskExecutionVerificationBinds(receipt, state) {
-		return receipt, false, "receipt does not bind the integrated execution state", nil
+		return receipt, false, false, "receipt does not bind the integrated execution state", nil
 	}
 	names, profile, err := s.taskExecutionGateProfile(ctx, state.ProjectID)
 	if err != nil {
-		return model.TaskExecutionVerification{}, false, "", err
+		return model.TaskExecutionVerification{}, false, false, "", err
 	}
 	if receipt.GateProfileSHA256 != profile {
-		return receipt, false, "verification Procedure changed after the receipt", nil
+		return receipt, false, true, "verification Procedure changed after the receipt", nil
 	}
 	if err := validateTaskVerificationGateResults(receipt.Gates, names, receipt.CandidateTree, profile); err != nil {
-		return receipt, false, "receipt gate evidence is invalid", nil
+		return receipt, false, false, "receipt gate evidence is invalid", nil
 	}
 	latestPhaseRev := 0
 	for _, stage := range []string{"code", "tests", "rebase"} {
 		phase, phaseFound, phaseErr := s.Durability.ReadLatestTaskExecutionPhase(ctx, state.ProjectID, state.TaskID, stage)
 		if phaseErr != nil {
-			return model.TaskExecutionVerification{}, false, "", phaseErr
+			return model.TaskExecutionVerification{}, false, false, "", phaseErr
 		}
 		if phaseFound && phase.ExecutionRevision > latestPhaseRev {
 			latestPhaseRev = phase.ExecutionRevision
 		}
 	}
 	if latestPhaseRev > receipt.AttemptRevision+1 {
-		return receipt, false, "a review phase postdates the verification attempt", nil
+		return receipt, false, false, "a review phase postdates the verification attempt", nil
 	}
-	return receipt, true, "", nil
+	return receipt, true, false, "", nil
 }
 
 func taskExecutionVerificationProjection(receipt model.TaskExecutionVerification) (TaskExecutionVerificationPublic, error) {
@@ -518,7 +518,7 @@ func (s *Service) taskExecutionVerificationProjectionFor(ctx context.Context, st
 	if s.Durability == nil {
 		return TaskExecutionVerificationPublic{}, false, nil
 	}
-	receipt, current, _, err := s.taskExecutionVerificationProofCurrent(ctx, state)
+	receipt, current, _, _, err := s.taskExecutionVerificationProofCurrent(ctx, state)
 	if err != nil || !current {
 		return TaskExecutionVerificationPublic{}, false, err
 	}
@@ -620,7 +620,7 @@ func (s *Service) taskExecutionTestRun(ctx context.Context, in TaskExecutionTest
 		return TaskExecutionPublicOutput{}, fmt.Errorf("canonical default branch advanced beyond the admitted Task base; controlled rebase is required")
 	}
 	if state.Status == model.TaskExecutionVerified {
-		receipt, current, _, err := s.taskExecutionVerificationProofCurrent(ctx, state)
+		receipt, current, _, _, err := s.taskExecutionVerificationProofCurrent(ctx, state)
 		if err != nil {
 			s.taskExecutionMu.Unlock()
 			return TaskExecutionPublicOutput{}, err
