@@ -320,7 +320,13 @@ func (s *Service) taskCompleteReplay(ctx context.Context, in TaskCompleteInput, 
 			return TaskCompleteOutput{}, fmt.Errorf("Task completion phase evidence conflicts with the recorded contract; evidence reconciliation is required")
 		}
 		if stored.AcceptedTrack != "" {
-			if model.ValidateTrackID(stored.AcceptedTrack) != nil || stored.VerificationOperationID != "" || stored.VerificationAttemptRevision != 0 {
+			// Accepted-Track proof is required for fallback completions and
+			// for zero-criteria Tasks completed through current verification
+			// (TSK698) — the verification fields may therefore be set.
+			if model.ValidateTrackID(stored.AcceptedTrack) != nil || (stored.VerificationOperationID == "") != (stored.VerificationAttemptRevision == 0) {
+				return TaskCompleteOutput{}, fmt.Errorf("Task completion phase evidence conflicts with the recorded contract; evidence reconciliation is required")
+			}
+			if stored.VerificationOperationID != "" && (model.ValidateObjectIdentifier(stored.VerificationOperationID) != nil || stored.VerificationAttemptRevision < 1) {
 				return TaskCompleteOutput{}, fmt.Errorf("Task completion phase evidence conflicts with the recorded contract; evidence reconciliation is required")
 			}
 			track, trackErr := s.trackReadStored(ctx, in.ProjectID, stored.AcceptedTrack, 0)
@@ -555,11 +561,22 @@ func (s *Service) taskCompleteIntegratedProof(ctx context.Context, task model.Ta
 	if tree != receipt.CandidateTree {
 		return taskCompleteIntegratedEvidence{}, fmt.Errorf("Task integration commit tree does not match the verified candidate tree")
 	}
-	return taskCompleteIntegratedEvidence{
+	evidence := taskCompleteIntegratedEvidence{
 		Head:            phase.Head,
 		OperationID:     receipt.OperationID,
 		AttemptRevision: receipt.AttemptRevision,
-	}, nil
+	}
+	if len(task.AcceptanceCriteria) == 0 {
+		// TSK698: a zero-criteria legacy Task must carry the durable
+		// accepted-Track proof even when its current verification is
+		// current — the verification alone does not prove delivery.
+		track, err := s.taskCompleteIntegratedAcceptedTrackProof(ctx, task, phase)
+		if err != nil {
+			return taskCompleteIntegratedEvidence{}, err
+		}
+		evidence.AcceptedTrack = track.AcceptedTrack
+	}
+	return evidence, nil
 }
 
 // taskCompleteIntegratedAcceptedTrackProof is the bounded TSK697 fallback for
